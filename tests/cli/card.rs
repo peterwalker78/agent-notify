@@ -8,11 +8,11 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use crate::support::{Imp, Scratch};
+use crate::support::Scratch;
 
 #[test]
 fn the_card_follows_the_working_notes_and_the_usage_cache() {
-    let s = Scratch::new("card", Imp::Binary);
+    let s = Scratch::new("card");
     s.desktop();
     let mut card = s
         .command(&["card"])
@@ -77,7 +77,7 @@ fn the_card_follows_the_working_notes_and_the_usage_cache() {
 /// read: the card finds the notes in what it was handed.
 #[test]
 fn the_card_reads_the_notes_from_the_folders_it_is_handed() {
-    let s = Scratch::new("card-plugin", Imp::Binary);
+    let s = Scratch::new("card-plugin");
     s.desktop();
     let pid = std::process::id();
     s.write(

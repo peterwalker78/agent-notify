@@ -5,7 +5,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::process::Output;
 
-use crate::support::{Imp, Scratch, parity};
+use crate::support::{Scratch, scenario};
 
 /// Every agent installed, as fakes on the scratch PATH.
 fn install_all(s: &Scratch) {
@@ -43,7 +43,7 @@ const OWN_SETTINGS: &str = r#"{
 
 #[test]
 fn the_first_setup_writes_the_config_and_wires_every_agent_installed() {
-    parity("setup_first", |s| {
+    scenario("setup_first", |s| {
         install_all(s);
         let output = s.run(&["setup"]);
         assert!(output.status.success());
@@ -75,7 +75,7 @@ fn the_first_setup_writes_the_config_and_wires_every_agent_installed() {
 
 #[test]
 fn setup_merges_beside_the_person_s_own_hooks_and_backs_up_once() {
-    parity("setup_merge", |s| {
+    scenario("setup_merge", |s| {
         s.fake("claude", "");
         s.config("agents = claude\n");
         s.write(CLAUDE_SETTINGS, OWN_SETTINGS);
@@ -114,7 +114,7 @@ fn setup_merges_beside_the_person_s_own_hooks_and_backs_up_once() {
 
 #[test]
 fn naming_agents_saves_them_and_unwires_the_rest() {
-    parity("setup_named", |s| {
+    scenario("setup_named", |s| {
         install_all(s);
         s.config("# mine\nagents = claude codex\nlong-task-secs = 60\n");
         s.run(&["setup"]);
@@ -132,7 +132,7 @@ fn naming_agents_saves_them_and_unwires_the_rest() {
 
 #[test]
 fn setup_remove_takes_every_hook_back_out() {
-    parity("setup_remove", |s| {
+    scenario("setup_remove", |s| {
         install_all(s);
         s.run(&["setup"]);
         s.write(
@@ -165,7 +165,7 @@ fn setup_remove_takes_every_hook_back_out() {
 
 #[test]
 fn settings_that_are_not_json_are_left_alone() {
-    parity("setup_not_json", |s| {
+    scenario("setup_not_json", |s| {
         s.fake("claude", "");
         s.config("agents = claude\n");
         s.write(CLAUDE_SETTINGS, "{ \"model\": \"opus\", }\n");
@@ -184,7 +184,7 @@ fn settings_that_are_not_json_are_left_alone() {
 
 #[test]
 fn an_unknown_agent_is_refused() {
-    parity("setup_unknown", |s| {
+    scenario("setup_unknown", |s| {
         s.config("agents = claude\n");
         let output = s.run(&["setup", "claude", "bard"]);
         assert!(!output.status.success());
@@ -201,7 +201,7 @@ fn an_unknown_agent_is_refused() {
 
 #[test]
 fn an_agent_not_installed_is_wired_anyway() {
-    parity("setup_missing", |s| {
+    scenario("setup_missing", |s| {
         s.config("agents = agy\n");
         assert_eq!(
             says(&s.run(&["setup"])).0,
@@ -212,7 +212,7 @@ fn an_agent_not_installed_is_wired_anyway() {
 
 #[test]
 fn codex_s_hooks_follow_codex_home() {
-    parity("setup_codex_home", |s| {
+    scenario("setup_codex_home", |s| {
         s.fake("codex", "");
         s.config("agents = codex\n");
         let mut command = s.command(&["setup"]);
@@ -229,71 +229,52 @@ fn codex_s_hooks_follow_codex_home() {
 
 #[test]
 fn status_says_what_is_configured_wired_and_open() {
-    let mut seen = Vec::new();
-    for imp in crate::support::implementations() {
-        let s = Scratch::new("status", imp);
-        s.fake("claude", "");
-        s.config("agents = claude\nlong-task-secs = 90\n");
-        s.run(&["setup"]);
-        s.desktop();
-        let mut open = std::process::Command::new("sleep")
-            .arg("30")
-            .spawn()
-            .unwrap();
-        s.write(
-            &format!("run/slipstream/working/{}", open.id()),
-            "claude: Kiln timer\nidle\n",
-        );
-        s.write(
-            "run/slipstream/working/999999999",
-            "gone: its process has ended\n\n",
-        );
-        let output = s.run(&["status"]);
-        open.kill().unwrap();
-        open.wait().unwrap();
-        let text = "config: $ROOT/config/agent-notify/config\nagents: claude\nlong task: 90s\n";
-        let printed = says(&output)
-            .0
-            .replace(&open.id().to_string(), "PID")
-            .replace(&s.root.display().to_string(), "$ROOT");
-        assert!(printed.starts_with(text), "{printed}");
-        assert!(
-            printed.contains("  Claude Code  installed: yes  hooks: yes\n"),
-            "{printed}"
-        );
-        assert!(printed.contains("  Codex        installed: "), "{printed}");
-        assert!(
-            printed.contains("sessions on the desktop:\n  PID"),
-            "{printed}"
-        );
-        assert!(
-            printed.contains(" idle    claude: Kiln timer\n"),
-            "{printed}"
-        );
-        assert!(!printed.contains("its process has ended"), "{printed}");
-        // The script listed the tools it needed, and asked the bus through busctl.
-        let lines: Vec<String> = printed
-            .lines()
-            .filter(|line| !line.starts_with("notification server:"))
-            .filter(|line| {
-                !["  jq", "  busctl", "  notify-send"]
-                    .iter()
-                    .any(|tool| line.starts_with(tool))
-            })
-            .filter(|line| !line.starts_with("  Gemini CLI") && !line.starts_with("  Codex "))
-            .map(str::to_owned)
-            .collect();
-        seen.push(lines);
-    }
-    if let [binary, script] = seen.as_slice() {
-        assert_eq!(script, binary);
-    }
+    let s = Scratch::new("status");
+    s.fake("claude", "");
+    s.config("agents = claude\nlong-task-secs = 90\n");
+    s.run(&["setup"]);
+    s.desktop();
+    let mut open = std::process::Command::new("sleep")
+        .arg("30")
+        .spawn()
+        .unwrap();
+    s.write(
+        &format!("run/slipstream/working/{}", open.id()),
+        "claude: Kiln timer\nidle\n",
+    );
+    s.write(
+        "run/slipstream/working/999999999",
+        "gone: its process has ended\n\n",
+    );
+    let output = s.run(&["status"]);
+    open.kill().unwrap();
+    open.wait().unwrap();
+    let text = "config: $ROOT/config/agent-notify/config\nagents: claude\nlong task: 90s\n";
+    let printed = says(&output)
+        .0
+        .replace(&open.id().to_string(), "PID")
+        .replace(&s.root.display().to_string(), "$ROOT");
+    assert!(printed.starts_with(text), "{printed}");
+    assert!(
+        printed.contains("  Claude Code  installed: yes  hooks: yes\n"),
+        "{printed}"
+    );
+    assert!(printed.contains("  Codex        installed: "), "{printed}");
+    assert!(
+        printed.contains("sessions on the desktop:\n  PID"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains(" idle    claude: Kiln timer\n"),
+        "{printed}"
+    );
+    assert!(!printed.contains("its process has ended"), "{printed}");
 }
 
-/// The script saved named agents only over an `agents` line already in the config.
+/// Naming agents saves them, whether or not the config has an `agents` line yet.
 #[test]
 fn naming_agents_adds_the_line_to_a_config_without_one() {
-    let s = Scratch::new("setup_no_agents_line", Imp::Binary);
+    let s = Scratch::new("setup_no_agents_line");
     s.fake("gemini", "");
     s.config("long-task-secs = 60\n");
     assert_eq!(
@@ -309,7 +290,7 @@ fn naming_agents_adds_the_line_to_a_config_without_one() {
 
 #[test]
 fn help_lists_the_commands_and_an_unknown_one_is_refused() {
-    let s = Scratch::new("help", Imp::Binary);
+    let s = Scratch::new("help");
     let help = s.run(&["--help"]);
     assert!(help.status.success());
     let help = says(&help).0;

@@ -56,7 +56,7 @@ impl<'a> Hint<'a> {
     }
 }
 
-/// The hint as its D-Bus type and value, as busctl writes them.
+/// The hint as its D-Bus type signature and value, for the record tests read.
 impl std::fmt::Display for Hint<'_> {
     fn fmt(&self, out: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {

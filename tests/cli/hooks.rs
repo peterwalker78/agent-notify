@@ -5,7 +5,7 @@ use std::os::unix::fs::symlink;
 use std::process::Command;
 
 use crate::fixtures::{agy, claude, codex, gemini};
-use crate::support::{AGENT_PID, Call, Imp, QUIET, Scratch, notify, parity, parity_except};
+use crate::support::{AGENT_PID, Call, QUIET, Scratch, notify, scenario};
 
 /// Longer than a long task (120 seconds unless the config says otherwise), or since boot.
 const LONG_AGO: u64 = 5 * 3600 + 30 * 60;
@@ -21,7 +21,7 @@ fn sound(name: &str, urgency: &str) -> Vec<(String, String)> {
 
 #[test]
 fn a_new_session_leaves_an_idle_note_named_for_its_folder() {
-    parity("session_start", |s| {
+    scenario("session_start", |s| {
         s.desktop();
         s.hook("claude", "session_start", claude::SESSION_START);
         assert_eq!(s.note(AGENT_PID).as_deref(), Some("claude: kiln\nidle\n"));
@@ -31,7 +31,7 @@ fn a_new_session_leaves_an_idle_note_named_for_its_folder() {
 
 #[test]
 fn a_new_session_leaves_the_command_that_reopens_it() {
-    let s = Scratch::new("resume_note", Imp::Binary);
+    let s = Scratch::new("resume_note");
     s.desktop();
     s.hook("claude", "session_start", claude::SESSION_START);
     assert_eq!(
@@ -49,7 +49,7 @@ fn a_new_session_leaves_the_command_that_reopens_it() {
 
 #[test]
 fn a_session_that_already_has_a_note_keeps_it() {
-    parity("session_start_again", |s| {
+    scenario("session_start_again", |s| {
         s.desktop();
         s.write("run/slipstream/working/4242", "claude: earlier work\n\n");
         s.hook("claude", "session_start", claude::SESSION_START);
@@ -62,7 +62,7 @@ fn a_session_that_already_has_a_note_keeps_it() {
 
 #[test]
 fn a_prompt_names_the_note_and_withdraws_the_last_notification() {
-    parity("prompt", |s| {
+    scenario("prompt", |s| {
         s.desktop();
         s.write(
             &format!("run/agent-notify/claude-{}.id", claude::SESSION),
@@ -90,7 +90,7 @@ fn a_prompt_names_the_note_and_withdraws_the_last_notification() {
 
 #[test]
 fn the_newest_title_in_the_transcript_names_the_note() {
-    parity("title", |s| {
+    scenario("title", |s| {
         s.desktop();
         s.write(claude::TRANSCRIPT_PATH, claude::TRANSCRIPT);
         s.hook("claude", "working", claude::TOOL_USED);
@@ -103,7 +103,7 @@ fn the_newest_title_in_the_transcript_names_the_note() {
 
 #[test]
 fn a_subagent_s_hook_keeps_the_session_s_name() {
-    parity("subagent_tool", |s| {
+    scenario("subagent_tool", |s| {
         s.desktop();
         s.write(
             "run/slipstream/working/4242",
@@ -119,7 +119,7 @@ fn a_subagent_s_hook_keeps_the_session_s_name() {
 
 #[test]
 fn a_background_session_is_named_by_its_record_with_its_subagents() {
-    parity("job_record", |s| {
+    scenario("job_record", |s| {
         s.desktop();
         s.write("home/.claude/sessions/4242.json", claude::SESSION_ENTRY);
         s.write("home/.claude/jobs/5c1d7e2a/state.json", claude::JOB_STATE);
@@ -134,7 +134,7 @@ fn a_background_session_is_named_by_its_record_with_its_subagents() {
 
 #[test]
 fn a_quick_task_finishing_is_quiet() {
-    parity("quick_finish", |s| {
+    scenario("quick_finish", |s| {
         s.desktop();
         s.config("long-task-secs = 100000\n");
         s.started("claude", claude::SESSION, LONG_AGO);
@@ -170,7 +170,7 @@ fn a_quick_task_finishing_is_quiet() {
 
 #[test]
 fn a_long_task_finishing_has_a_sound_but_waits_for_you() {
-    parity("long_finish", |s| {
+    scenario("long_finish", |s| {
         s.config("sound-finished = bell\n");
         s.started("claude", claude::SESSION, LONG_AGO);
         s.write(
@@ -197,7 +197,7 @@ fn a_long_task_finishing_has_a_sound_but_waits_for_you() {
 
 #[test]
 fn an_agent_waiting_on_you_after_a_long_task_is_critical() {
-    parity("long_attention", |s| {
+    scenario("long_attention", |s| {
         s.desktop();
         s.started("claude", claude::SESSION, LONG_AGO);
         s.hook("claude", "attention", claude::PERMISSION);
@@ -214,12 +214,10 @@ fn an_agent_waiting_on_you_after_a_long_task_is_critical() {
                 &hints
             )]
         );
-        if s.imp == Imp::Binary {
-            assert!(
-                s.read("run/agent-notify/4242.waiting").is_some(),
-                "the bar can tell it waits on you"
-            );
-        }
+        assert!(
+            s.read("run/agent-notify/4242.waiting").is_some(),
+            "the card can tell it waits on you"
+        );
         s.hook("claude", "start", claude::PROMPT);
         assert!(s.read("run/agent-notify/4242.waiting").is_none());
     });
@@ -227,7 +225,7 @@ fn an_agent_waiting_on_you_after_a_long_task_is_critical() {
 
 #[test]
 fn a_permission_request_says_what_it_wants_to_run() {
-    parity("codex_permission", |s| {
+    scenario("codex_permission", |s| {
         s.hook("codex", "attention", codex::PERMISSION);
         s.hook("codex", "attention", codex::TOOL_ONLY);
         s.hook(
@@ -266,7 +264,7 @@ fn a_permission_request_says_what_it_wants_to_run() {
 
 #[test]
 fn codex_s_last_message_is_the_finish_s_detail() {
-    parity("codex_finish", |s| {
+    scenario("codex_finish", |s| {
         s.desktop();
         s.hook("codex", "start", codex::PROMPT);
         assert_eq!(
@@ -293,7 +291,7 @@ fn codex_s_last_message_is_the_finish_s_detail() {
 
 #[test]
 fn gemini_s_answer_is_the_finish_s_detail() {
-    parity("gemini", |s| {
+    scenario("gemini", |s| {
         s.desktop();
         s.hook("gemini", "start", gemini::PROMPT);
         s.hook("gemini", "working", gemini::TOOL_USED);
@@ -330,7 +328,7 @@ fn gemini_s_answer_is_the_finish_s_detail() {
 
 #[test]
 fn antigravity_starts_on_its_first_step_and_is_named_from_its_transcript() {
-    parity("antigravity", |s| {
+    scenario("antigravity", |s| {
         s.desktop();
         s.write(agy::TRANSCRIPT_PATH, agy::TRANSCRIPT);
         s.hook("agy", "session_start", agy::SESSION_START);
@@ -364,7 +362,7 @@ fn antigravity_starts_on_its_first_step_and_is_named_from_its_transcript() {
 
 #[test]
 fn without_a_desktop_s_folder_there_is_no_note_but_still_a_notification() {
-    parity("no_desktop", |s| {
+    scenario("no_desktop", |s| {
         s.hook("claude", "finish", claude::STOP);
         assert!(s.note(AGENT_PID).is_none());
         assert_eq!(s.calls().len(), 1);
@@ -373,7 +371,7 @@ fn without_a_desktop_s_folder_there_is_no_note_but_still_a_notification() {
 
 #[test]
 fn what_isn_t_an_agent_s_json_says_nothing() {
-    parity("not_json", |s| {
+    scenario("not_json", |s| {
         s.desktop();
         s.hook("claude", "finish", "not json at all");
         s.hook("claude", "attention", "[1, 2]");
@@ -388,7 +386,7 @@ fn what_isn_t_an_agent_s_json_says_nothing() {
 
 #[test]
 fn a_session_without_an_id_is_the_default_one() {
-    parity("default_session", |s| {
+    scenario("default_session", |s| {
         s.hook("gemini", "start", r#"{"prompt": "hello"}"#);
         assert!(s.read("run/agent-notify/gemini-default.started").is_some());
     });
@@ -396,44 +394,38 @@ fn a_session_without_an_id_is_the_default_one() {
 
 #[test]
 fn a_kept_session_s_notification_names_the_window_attached_to_it() {
-    parity_except(
-        "kept_window",
-        |s| {
-            // A process called agent-notify, as `keep` leaves in the window.
-            fs::create_dir_all(s.path("window")).unwrap();
-            symlink("/usr/bin/sleep", s.path("window/agent-notify")).unwrap();
-            let mut window = Command::new(s.path("window/agent-notify"))
-                .arg("30")
-                .spawn()
-                .unwrap();
-            s.write(
-                "run/agent-notify/claude-5c1d7e2a.window",
-                &format!("{}\n", window.id()),
-            );
-            s.hook("claude", "finish", claude::STOP);
-            // Another process with the number left in the file is no window of the session's.
-            s.write(
-                "run/agent-notify/claude-5c1d7e2a.window",
-                &format!("{}\n", std::process::id()),
-            );
-            s.hook("claude", "finish", claude::STOP);
-            let calls = s.calls();
-            let [
-                Call::Notify { hints: first, .. },
-                Call::Notify { hints: second, .. },
-            ] = calls.as_slice()
-            else {
-                panic!("{calls:?}")
-            };
-            assert_eq!(first.get("sender-pid"), Some(&format!("x {}", window.id())));
-            assert_eq!(second.get("sender-pid"), None);
-            window.kill().unwrap();
-            window.wait().unwrap();
-        },
-        |_, files| {
-            files.remove("run/agent-notify/claude-5c1d7e2a.window");
-        },
-    );
+    scenario("kept_window", |s| {
+        // A process called agent-notify, as `keep` leaves in the window.
+        fs::create_dir_all(s.path("window")).unwrap();
+        symlink("/usr/bin/sleep", s.path("window/agent-notify")).unwrap();
+        let mut window = Command::new(s.path("window/agent-notify"))
+            .arg("30")
+            .spawn()
+            .unwrap();
+        s.write(
+            "run/agent-notify/claude-5c1d7e2a.window",
+            &format!("{}\n", window.id()),
+        );
+        s.hook("claude", "finish", claude::STOP);
+        // Another process with the number left in the file is no window of the session's.
+        s.write(
+            "run/agent-notify/claude-5c1d7e2a.window",
+            &format!("{}\n", std::process::id()),
+        );
+        s.hook("claude", "finish", claude::STOP);
+        let calls = s.calls();
+        let [
+            Call::Notify { hints: first, .. },
+            Call::Notify { hints: second, .. },
+        ] = calls.as_slice()
+        else {
+            panic!("{calls:?}")
+        };
+        assert_eq!(first.get("sender-pid"), Some(&format!("x {}", window.id())));
+        assert_eq!(second.get("sender-pid"), None);
+        window.kill().unwrap();
+        window.wait().unwrap();
+    });
 }
 
 /// Runs a hook under made-up agent processes: `$ROOT/tree/fakeagent` runs its arguments as a child
@@ -482,44 +474,34 @@ fn fake_pids(s: &Scratch) -> Vec<String> {
 
 #[test]
 fn the_agent_is_the_nearest_process_above_the_hook_called_what_it_is() {
-    for imp in crate::support::implementations() {
-        let s = Scratch::new("tree_one", imp);
-        s.desktop();
-        under_fake_agent(&s, &["fakeagent"]);
-        assert_eq!(notes(&s), fake_pids(&s), "{imp:?}");
-    }
+    let s = Scratch::new("tree_one");
+    s.desktop();
+    under_fake_agent(&s, &["fakeagent"]);
+    assert_eq!(notes(&s), fake_pids(&s));
 }
 
 #[test]
 fn an_agent_restarting_itself_is_one_session() {
-    for imp in crate::support::implementations() {
-        let s = Scratch::new("tree_restart", imp);
-        s.desktop();
-        under_fake_agent(&s, &["fakeagent", "fakeagent"]);
-        assert_eq!(
-            notes(&s),
-            fake_pids(&s)[1..],
-            "{imp:?}: named for the lower"
-        );
-    }
+    let s = Scratch::new("tree_restart");
+    s.desktop();
+    under_fake_agent(&s, &["fakeagent", "fakeagent"]);
+    assert_eq!(notes(&s), fake_pids(&s)[1..], "named for the lower");
 }
 
 #[test]
 fn a_subagent_running_as_a_process_of_its_own_leaves_no_note() {
-    for imp in crate::support::implementations() {
-        let s = Scratch::new("tree_subagent", imp);
-        s.desktop();
-        under_fake_agent(&s, &["fakeagent", "sh", "fakeagent"]);
-        assert_eq!(fake_pids(&s).len(), 2);
-        assert!(notes(&s).is_empty(), "{imp:?}");
-    }
+    let s = Scratch::new("tree_subagent");
+    s.desktop();
+    under_fake_agent(&s, &["fakeagent", "sh", "fakeagent"]);
+    assert_eq!(fake_pids(&s).len(), 2);
+    assert!(notes(&s).is_empty());
 }
 
 #[test]
 fn a_hook_never_waits_on_a_missing_notification_server() {
     // With no recording and no session bus, a notification can't be sent: the hook still says
     // nothing and succeeds, and logs why.
-    let s = Scratch::new("no_bus", Imp::Binary);
+    let s = Scratch::new("no_bus");
     let mut command = s.command(&["hook", "claude", "finish"]);
     command
         .env_remove("AGENT_NOTIFY_RECORD")

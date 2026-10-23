@@ -1,10 +1,5 @@
 //! A scratch machine for each test: its own home, config, cache and runtime folders, fake agents
 //! and tools on its PATH, and a record of the notifications that would have been sent.
-//!
-//! Every test runs against the binary. With `AGENT_NOTIFY_SCRIPT` naming the shell script this
-//! program replaced (it needs jq), each also runs against the script, and the two must leave the
-//! same files and send the same notifications, apart from the differences named where they are
-//! allowed.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -15,32 +10,6 @@ use std::process::{Command, Output, Stdio};
 
 /// The process ID the hooks are told is the agent's, unless a test walks a real process tree.
 pub const AGENT_PID: &str = "4242";
-
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub enum Imp {
-    Binary,
-    Script,
-}
-
-impl Imp {
-    fn program(self) -> PathBuf {
-        match self {
-            Imp::Binary => PathBuf::from(env!("CARGO_BIN_EXE_agent-notify")),
-            Imp::Script => {
-                PathBuf::from(std::env::var_os("AGENT_NOTIFY_SCRIPT").expect("checked before"))
-            }
-        }
-    }
-}
-
-/// The implementations to check: the binary, and the script when it is named.
-pub fn implementations() -> Vec<Imp> {
-    let mut all = vec![Imp::Binary];
-    if std::env::var_os("AGENT_NOTIFY_SCRIPT").is_some() {
-        all.push(Imp::Script);
-    }
-    all
-}
 
 /// One notification call.
 #[derive(Debug, PartialEq, Clone)]
@@ -78,7 +47,6 @@ pub fn notify<K: AsRef<str>, V: AsRef<str>>(
 pub const QUIET: &[(&str, &str)] = &[("urgency", "y 1"), ("suppress-sound", "b true")];
 
 pub struct Scratch {
-    pub imp: Imp,
     pub root: PathBuf,
     /// Extra variables for every command.
     vars: std::cell::RefCell<Vec<(String, String)>>,
@@ -94,34 +62,24 @@ fn recorder(log: &Path, then: &str) -> String {
 }
 
 impl Scratch {
-    pub fn new(test: &str, imp: Imp) -> Scratch {
+    pub fn new(test: &str) -> Scratch {
         let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-            .join("parity")
-            .join(format!("{test}-{imp:?}"));
+            .join("cli")
+            .join(test);
         let _ = fs::remove_dir_all(&root);
         for dir in ["home", "config", "cache", "state", "run", "bin", "logs"] {
             fs::create_dir_all(root.join(dir)).unwrap();
         }
         fs::set_permissions(root.join("run"), fs::Permissions::from_mode(0o700)).unwrap();
-        symlink(imp.program(), root.join("bin/agent-notify")).unwrap();
-        let scratch = Scratch {
-            imp,
+        symlink(
+            env!("CARGO_BIN_EXE_agent-notify"),
+            root.join("bin/agent-notify"),
+        )
+        .unwrap();
+        Scratch {
             root,
             vars: Default::default(),
-        };
-        // The script talks to the bus through busctl; the binary records instead. A
-        // notification's id is how many have been sent, as the binary's record numbers them.
-        let log = scratch.root.join("logs/busctl");
-        let answer = format!(
-            r#"case " $* " in
-    *" Notify "*) echo "u $(tr '\036' '\n' <'{}' | grep -c "$(printf '\037')Notify$(printf '\037')")" ;;
-    *GetServerInformation*) echo 'ssss "Fake server" "Fake" "1" "1.2"' ;;
-    *GetCapabilities*) echo 'as 2 "body" "actions"' ;;
-esac"#,
-            log.display()
-        );
-        scratch.tool("busctl", &recorder(&log, &answer));
-        scratch
+        }
     }
 
     /// Sets a variable for every command run from now on.
@@ -260,36 +218,23 @@ esac"#,
             .write_all(payload.as_bytes())
             .unwrap();
         let output = child.wait_with_output().unwrap();
-        assert!(
-            output.status.success(),
-            "{:?}: a hook never fails the agent",
-            self.imp
-        );
+        assert!(output.status.success(), "a hook never fails the agent");
         assert_eq!(
             String::from_utf8_lossy(&output.stdout),
             "",
-            "{:?}: a hook prints nothing",
-            self.imp
+            "a hook prints nothing"
         );
         assert_eq!(
             String::from_utf8_lossy(&output.stderr),
             "",
-            "{:?}: a hook prints nothing",
-            self.imp
+            "a hook prints nothing"
         );
     }
 
     /// The notification calls made so far, with how long a task took written as `<duration>`,
     /// since a clock that ticks during a run can add a second to it.
     pub fn calls(&self) -> Vec<Call> {
-        let mut calls: Vec<Call> = match self.imp {
-            Imp::Binary => recorded(&self.path("logs/record")),
-            Imp::Script => self
-                .runs("busctl")
-                .iter()
-                .filter_map(|args| from_busctl(args))
-                .collect(),
-        };
+        let mut calls = recorded(&self.path("logs/record"));
         for call in &mut calls {
             if let Call::Notify { body, .. } = call {
                 *body = unduration(body);
@@ -405,79 +350,7 @@ fn recorded(path: &Path) -> Vec<Call> {
         .collect()
 }
 
-/// A call from busctl's command line: `--user --timeout=5 -- call DEST PATH IFACE METHOD SIG ARGS…`.
-fn from_busctl(args: &[String]) -> Option<Call> {
-    let call = args.iter().position(|arg| arg == "call")?;
-    let args = &args[call + 4..];
-    match args[0].as_str() {
-        "Notify" => {
-            assert_eq!(args[1], "susssasa{sv}i");
-            assert_eq!(args[4], "utilities-terminal");
-            assert_eq!(args[7], "0", "no actions");
-            let count: usize = args[8].parse().unwrap();
-            let mut hints = BTreeMap::new();
-            for hint in 0..count {
-                let at = 9 + hint * 3;
-                hints.insert(
-                    args[at].clone(),
-                    format!("{} {}", args[at + 1], args[at + 2]),
-                );
-            }
-            assert_eq!(args[9 + count * 3], "-1");
-            Some(Call::Notify {
-                app: args[2].clone(),
-                replaces: args[3].parse().unwrap(),
-                summary: args[5].clone(),
-                body: args[6].clone(),
-                hints,
-            })
-        }
-        "CloseNotification" => Some(Call::Close(args[2].parse().unwrap())),
-        _ => None,
-    }
-}
-
-/// Runs `test` on a fresh scratch machine for each implementation, then checks that the script
-/// left what the binary left, after `normalise` has taken out what is allowed to differ.
-pub fn parity(name: &str, test: impl Fn(&Scratch)) {
-    parity_except(name, test, |_, _| {});
-}
-
-pub fn parity_except(
-    name: &str,
-    test: impl Fn(&Scratch),
-    normalise: impl Fn(Imp, &mut BTreeMap<String, String>),
-) {
-    let mut seen = Vec::new();
-    for imp in implementations() {
-        let scratch = Scratch::new(name, imp);
-        test(&scratch);
-        let mut files = scratch.files();
-        // The marker a session waiting on you leaves for `agent-notify card` is new.
-        files.retain(|name, _| !name.ends_with(".waiting"));
-        normalise(imp, &mut files);
-        let mut calls = scratch.calls();
-        for call in &mut calls {
-            if let Call::Notify { hints, .. } = call {
-                if let Some(pid) = hints.get_mut("sender-pid") {
-                    *pid = "<pid>".into();
-                }
-            }
-        }
-        seen.push((imp, files, calls));
-    }
-    if let [
-        (_, binary_files, binary_calls),
-        (_, script_files, script_calls),
-    ] = seen.as_slice()
-    {
-        assert_eq!(
-            script_files, binary_files,
-            "{name}: the script and the binary left different files"
-        );
-        assert_eq!(
-            script_calls, binary_calls,
-            "{name}: the script and the binary notified differently"
-        );
-    }
+/// Runs `test` on a fresh scratch machine called `name`.
+pub fn scenario(name: &str, test: impl Fn(&Scratch)) {
+    test(&Scratch::new(name));
 }
