@@ -75,11 +75,17 @@ fn exec(env: &Env, agent: &OsStr, args: &[OsString]) -> ExitCode {
     })
 }
 
-/// Set by SIGHUP or SIGTERM: the terminal has gone, or the session is ending.
+/// Set by SIGHUP: the terminal has gone.
 static HUNG_UP: AtomicBool = AtomicBool::new(false);
+/// Set by SIGTERM: the desktop session is ending, and brings the window back at the next login.
+static TERMINATED: AtomicBool = AtomicBool::new(false);
 
 extern "C" fn hung_up(_signal: libc::c_int) {
     HUNG_UP.store(true, Ordering::SeqCst);
+}
+
+extern "C" fn terminated(_signal: libc::c_int) {
+    TERMINATED.store(true, Ordering::SeqCst);
 }
 
 fn on_signal(signal: libc::c_int, handler: libc::sighandler_t) {
@@ -107,10 +113,12 @@ fn terminal_still_there() -> bool {
 /// Attaches this terminal to background session `id`, reopening it if it has stopped, and
 /// stays until it detaches.
 ///
-/// Closing the window or logging out hangs this process up with it, and a session still working
-/// carries on. Leaving the session in the window (detaching, or quitting the agent view) stops
-/// it, as quitting the agent does anywhere else: its conversation is kept, and attaching opens
-/// it again. A session another window has attached to since is that window's, and is left to it.
+/// Logging out carries the session on: the desktop sends this process SIGTERM before it ends the
+/// terminal, and its layout attaches the window again at the next login. Closing the window
+/// only hangs this process up, and a session still working carries on. Leaving the session in
+/// the window (detaching, or quitting the agent view) stops it, as quitting the agent does
+/// anywhere else: its conversation is kept, and attaching opens it again. A session another
+/// window has attached to since is that window's, and is left to it.
 fn attach_to(env: &Env, agent: &str, id: &str) -> ! {
     let me = std::process::id();
     let window = state::make_state(env).map(|dir| dir.join(format!("{agent}-{id}.window")));
@@ -134,13 +142,16 @@ fn attach_to(env: &Env, agent: &str, id: &str) -> ! {
     );
     on_signal(
         libc::SIGTERM,
-        hung_up as extern "C" fn(libc::c_int) as libc::sighandler_t,
+        terminated as extern "C" fn(libc::c_int) as libc::sighandler_t,
     );
     let _ = env.command(agent).args(["attach", id]).status();
-    if HUNG_UP.load(Ordering::SeqCst) {
-        // A session with nothing under way would sit in memory with no terminal to reach it
-        // by, so it is stopped. Its conversation is kept, and attaching opens it again.
-        if !claude::is_under_way(env, id) && !taken_over(window.as_deref(), me) {
+    let terminated = TERMINATED.load(Ordering::SeqCst);
+    if terminated || HUNG_UP.load(Ordering::SeqCst) {
+        if stops_when_closed(
+            terminated,
+            claude::is_under_way(env, id),
+            taken_over(window.as_deref(), me),
+        ) {
             stop(env, agent, id);
         }
         std::process::exit(0);
@@ -164,6 +175,14 @@ fn attach_to(env: &Env, agent: &str, id: &str) -> ! {
     std::process::exit(0);
 }
 
+/// Whether a session whose window has gone is stopped. One left by a logout is brought back with
+/// the layout. Otherwise a session with nothing under way would sit in memory with no terminal
+/// to reach it by, so it is stopped, unless another window has it: its conversation is kept, and
+/// attaching opens it again.
+fn stops_when_closed(terminated: bool, under_way: bool, taken_over: bool) -> bool {
+    !terminated && !under_way && !taken_over
+}
+
 /// Whether another window has attached to the session since this one did: each attach writes
 /// its own process into the session's window file.
 fn taken_over(window: Option<&std::path::Path>, me: u32) -> bool {
@@ -179,4 +198,25 @@ fn stop(env: &Env, agent: &str, id: &str) {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_logout_never_stops_the_session() {
+        for under_way in [false, true] {
+            for taken_over in [false, true] {
+                assert!(!stops_when_closed(true, under_way, taken_over));
+            }
+        }
+    }
+
+    #[test]
+    fn closing_the_window_stops_only_an_idle_session_no_other_window_has() {
+        assert!(stops_when_closed(false, false, false));
+        assert!(!stops_when_closed(false, true, false));
+        assert!(!stops_when_closed(false, false, true));
+    }
 }

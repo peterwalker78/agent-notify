@@ -3,6 +3,7 @@
 ## Unreleased
 
 - **No more phantom sessions.** Claude Code starts a spare background session ahead of time so the next one opens at once, and its start hook used to leave notes for it as though someone were working there: an extra idle trace on Slipstream's faded desktop, and a session to bring back that was nobody's. A spare leaves no notes until a job takes it.
+- **Every kept session carries on through a logout in Slipstream.** One sitting at its prompt used to be stopped at logout and opened again at login; it now keeps running, and its window attaches to it again. Closing a window still stops a session with nothing under way.
 - **A session waiting on your answer carries on through a logout.** `keep` stopped a background session at logout unless it was working, which lost the question it was waiting to ask you; one waiting on you now stays, as a working one does.
 - **A session attached from a second window is left to that window.** When the first window's attach ends after that, it used to stop the session under the window now showing it; it now leaves the session running, and isn't brought back at login with it, since the other window has it.
 - **The card is your plan limits and nothing else.** It no longer lists the open sessions, since whoever opens the panel is working with them already, and it leaves the chip to show the first gauges rather than how many sessions are working. It reads only the usage cache now, and the hooks no longer leave a marker for a session waiting on you.
