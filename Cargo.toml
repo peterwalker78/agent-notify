@@ -20,3 +20,10 @@ zbus = "5.19"
 lto = true
 codegen-units = 1
 strip = "symbols"
+
+# What a desktop builds from a checkout to install for itself: optimised, but without link-time
+# optimisation and with the compile split up, so it builds in little memory and quickly.
+[profile.session]
+inherits = "release"
+lto = false
+codegen-units = 16
