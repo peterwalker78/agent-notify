@@ -135,6 +135,8 @@ fn wire(env: &Env, agent: &str, install: bool) -> bool {
         }
         Wiring::Entry(hooks) => {
             let settings = settings.as_object_mut().ok_or(())?;
+            // The resume-note script these hooks took over from had an entry of its own.
+            settings.shift_remove("agent-resume-note");
             if install {
                 settings.insert("agent-notify".into(), hooks);
             } else {

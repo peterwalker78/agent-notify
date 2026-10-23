@@ -211,6 +211,24 @@ fn an_agent_not_installed_is_wired_anyway() {
 }
 
 #[test]
+fn antigravity_s_resume_note_script_entry_gives_way_to_the_hooks() {
+    scenario("setup_agy_resume_note", |s| {
+        s.config("agents = agy\n");
+        s.write(
+            "home/.gemini/config/hooks.json",
+            r#"{"agent-resume-note": {"SessionStart": [{"type": "command", "command": "agent-resume-note agy agy --conversation"}]}, "theirs": {}}"#,
+        );
+        s.run(&["setup"]);
+        let hooks = s.read("home/.gemini/config/hooks.json").unwrap();
+        assert!(!hooks.contains("agent-resume-note"), "{hooks}");
+        assert!(
+            hooks.contains("\"theirs\"") && hooks.contains("hook agy session_start"),
+            "{hooks}"
+        );
+    });
+}
+
+#[test]
 fn codex_s_hooks_follow_codex_home() {
     scenario("setup_codex_home", |s| {
         s.fake("codex", "");
