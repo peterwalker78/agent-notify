@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Each plan limit says how long its window is,** as `window` in seconds beside `resets`, so a desktop can show how far through the window you are. It's left out where the length isn't known.
+
 ## 0.1.0 - 2026-10-23
 
 The first release on its own. agent-notify used to come with Slipstream; it is now a project of its own, and a plugin for Slipstream's plugin panel.

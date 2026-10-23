@@ -126,11 +126,20 @@ fn meters(limits: &Value, prefix: &str) -> Option<Vec<Value>> {
             None => 0.0,
             Some(percent) => percent.as_f64()?,
         };
-        meters.push(json!({
-            "label": format!("{prefix}{}", window(limit.get("windowDurationMins"))?),
+        let minutes = limit.get("windowDurationMins");
+        let mut meter = json!({
+            "label": format!("{prefix}{}", window(minutes)?),
             "percent": rounded(percent),
             "resets": limit.get("resetsAt").cloned().unwrap_or(Value::Null),
-        }));
+        });
+        // The window's length in seconds, for a meter that shows how far through it is.
+        if let Some(minutes) = minutes
+            .and_then(Value::as_u64)
+            .filter(|&minutes| minutes > 0)
+        {
+            meter["window"] = json!(minutes * 60);
+        }
+        meters.push(meter);
     }
     Some(meters)
 }
@@ -229,6 +238,13 @@ mod tests {
             .map(|m| m["label"].as_str().unwrap())
             .collect();
         assert_eq!(labels, ["5-hour", "Weekly", "Mini · 5-hour"]);
+        let windows: Vec<&Value> = report["meters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| &m["window"])
+            .collect();
+        assert_eq!(windows, [&json!(18_000), &json!(604_800), &json!(18_000)]);
         assert_eq!(report["meters"][2]["percent"], 100);
         assert_eq!(report["detail"], "Plus");
         assert_eq!(report["note"], Value::Null);

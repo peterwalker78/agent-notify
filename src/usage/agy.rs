@@ -54,7 +54,17 @@ fn meter(line: &str) -> Option<Value> {
     }
     let resets = time::utc(resets).map_or(Value::Null, |at| json!(at));
     let label = format!("{window} · {models}");
-    Some(json!({"label": label, "percent": rounded(100.0 - left), "resets": resets}))
+    let mut meter = json!({"label": label, "percent": rounded(100.0 - left), "resets": resets});
+    // The window's length in seconds, where its name says it.
+    let length = match window {
+        "Daily" => Some(86_400),
+        "Weekly" => Some(7 * 86_400),
+        _ => None,
+    };
+    if let Some(length) = length {
+        meter["window"] = json!(length);
+    }
+    Some(meter)
 }
 
 #[cfg(test)]
@@ -68,8 +78,8 @@ mod tests {
         assert_eq!(
             report["meters"],
             json!([
-                {"label": "Daily · Gemini", "percent": 28, "resets": 1_792_800_000},
-                {"label": "Weekly · Claude", "percent": 0, "resets": null},
+                {"label": "Daily · Gemini", "percent": 28, "resets": 1_792_800_000, "window": 86_400},
+                {"label": "Weekly · Claude", "percent": 0, "resets": null, "window": 604_800},
             ])
         );
         assert_eq!(report["updated"], 7);

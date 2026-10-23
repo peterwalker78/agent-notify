@@ -166,11 +166,17 @@ pub fn title(text: &str) -> String {
     }
 }
 
-/// One meter; None when its reset time isn't a time at all, Err when the reply is unreadable.
+/// How long the session and weekly limits' windows are, in seconds.
+const SESSION_WINDOW: i64 = 5 * 3600;
+const WEEK_WINDOW: i64 = 7 * 86400;
+
+/// One meter, with its window's length in seconds where it is known; None when its reset time
+/// isn't a time at all, Err when the reply is unreadable.
 fn meter(
     label: String,
     percent: Option<&Value>,
     resets: Option<&Value>,
+    window: Option<i64>,
 ) -> Result<Option<Value>, ()> {
     let percent = match percent {
         None => 0.0,
@@ -181,9 +187,11 @@ fn meter(
         Reset::At(at) => json!(at),
         Reset::Unreadable => return Ok(None),
     };
-    Ok(Some(
-        json!({"label": label, "percent": rounded(percent), "resets": resets}),
-    ))
+    let mut meter = json!({"label": label, "percent": rounded(percent), "resets": resets});
+    if let Some(window) = window {
+        meter["window"] = json!(window);
+    }
+    Ok(Some(meter))
 }
 
 /// The section for the reply, from its `limits` where it has them, or else its five-hour and
@@ -200,11 +208,18 @@ pub fn report(reply: &Value, plan: &str, now: i64) -> Option<Value> {
                     return None;
                 }
                 let kind = limit.get("kind");
+                let weekly = kind.and_then(Value::as_str) == Some("weekly_all")
+                    || limit.get("group").and_then(Value::as_str) == Some("weekly");
+                let window = if kind.and_then(Value::as_str) == Some("session") {
+                    Some(SESSION_WINDOW)
+                } else {
+                    weekly.then_some(WEEK_WINDOW)
+                };
                 let label = if kind.and_then(Value::as_str) == Some("session") {
                     "Session".to_owned()
                 } else if kind.and_then(Value::as_str) == Some("weekly_all") {
                     "Weekly".to_owned()
-                } else if limit.get("group").and_then(Value::as_str) == Some("weekly") {
+                } else if weekly {
                     let scope = first(
                         limit,
                         &[
@@ -221,11 +236,14 @@ pub fn report(reply: &Value, plan: &str, now: i64) -> Option<Value> {
                     title(&kind?.as_str()?.replace('_', " "))
                 };
                 let percent = at(limit, &[Key("percent")]);
-                meters.extend(meter(label, percent, limit.get("resets_at")).ok()?);
+                meters.extend(meter(label, percent, limit.get("resets_at"), window).ok()?);
             }
         }
         _ => {
-            for (label, key) in [("Session", "five_hour"), ("Weekly", "seven_day")] {
+            for (label, key, length) in [
+                ("Session", "five_hour", SESSION_WINDOW),
+                ("Weekly", "seven_day", WEEK_WINDOW),
+            ] {
                 let Some(window) = reply.get(key).filter(|window| !window.is_null()) else {
                     continue;
                 };
@@ -233,7 +251,8 @@ pub fn report(reply: &Value, plan: &str, now: i64) -> Option<Value> {
                     return None;
                 }
                 let percent = at(window, &[Key("utilization")]);
-                meters.extend(meter(label.to_owned(), percent, window.get("resets_at")).ok()?);
+                let resets = window.get("resets_at");
+                meters.extend(meter(label.to_owned(), percent, resets, Some(length)).ok()?);
             }
         }
     }
@@ -279,6 +298,18 @@ mod tests {
             ]
         );
         assert_eq!(report["meters"][0]["percent"], 42);
+        let windows: Vec<&Value> = report["meters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| &m["window"])
+            .collect();
+        let week = json!(604_800);
+        assert_eq!(
+            windows,
+            [&json!(18_000), &week, &week, &week, &Value::Null],
+            "an extra-usage limit's window isn't known"
+        );
         assert_eq!(report["meters"][0]["resets"], 1_792_782_000);
         assert_eq!(report["meters"][4]["percent"], 51);
         assert_eq!(report["detail"], "Max");
@@ -291,7 +322,7 @@ mod tests {
         let report = report(&reply, "", 5).unwrap();
         assert_eq!(
             report["meters"],
-            json!([{"label": "Session", "percent": 7, "resets": null}])
+            json!([{"label": "Session", "percent": 7, "resets": null, "window": 18_000}])
         );
         assert_eq!(report["detail"], Value::Null);
     }
