@@ -192,7 +192,12 @@ impl Scratch {
     }
 
     pub fn run(&self, args: &[&str]) -> Output {
-        self.command(args).stdin(Stdio::null()).output().unwrap()
+        let mut command = self.command(args);
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        spawn(&mut command).wait_with_output().unwrap()
     }
 
     /// Runs a hook with `payload` (a fixture file's contents, or JSON) on stdin, as the agent
@@ -205,12 +210,11 @@ impl Scratch {
 
     pub fn hook_with(&self, mut command: Command, payload: &str) {
         let payload = payload.replace("@ROOT@", &self.root.display().to_string());
-        let mut child = command
+        command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
+            .stderr(Stdio::piped());
+        let mut child = spawn(&mut command);
         child
             .stdin
             .take()
@@ -348,6 +352,22 @@ fn recorded(path: &Path) -> Vec<Call> {
             }
         })
         .collect()
+}
+
+/// Starts `command`. A program a test has just written can be busy for a moment: tests run in
+/// parallel, and a process another one is starting holds the open file until it runs its own
+/// program. So a busy one is tried again.
+pub fn spawn(command: &mut Command) -> std::process::Child {
+    let mut tries = 0;
+    loop {
+        match command.spawn() {
+            Err(err) if err.kind() == std::io::ErrorKind::ExecutableFileBusy && tries < 100 => {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            started => return started.unwrap(),
+        }
+    }
 }
 
 /// Runs `test` on a fresh scratch machine called `name`.
