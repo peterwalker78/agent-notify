@@ -231,8 +231,11 @@ impl Hook<'_> {
         if id.is_empty() { "default".into() } else { id }
     }
 
+    /// How long since the task started, on the clock since boot. The start is read signed: only
+    /// the difference matters, and a start written as before boot still gives it.
     fn elapsed(&self, session: &Session, now: i64) -> Option<i64> {
-        state::number_in(&session.started).map(|started| now - started as i64)
+        let started: i64 = state::first_line(&session.started)?.trim().parse().ok()?;
+        Some(now - started)
     }
 
     fn start(&self, session: &Session, now: i64) {

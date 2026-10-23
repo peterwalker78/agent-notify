@@ -154,12 +154,14 @@ impl Scratch {
 
     /// A task that started `ago` seconds before now, by the clock the hooks use (seconds since
     /// boot), or at boot on a machine that has been up for less.
+    /// Records that the session's task started `ago` seconds since, on the clock since boot,
+    /// however long the machine has been up.
     pub fn started(&self, agent: &str, session: &str, ago: u64) {
         let uptime = fs::read_to_string("/proc/uptime").unwrap();
-        let now: u64 = uptime.split('.').next().unwrap().parse().unwrap();
+        let now: i64 = uptime.split('.').next().unwrap().parse().unwrap();
         self.write(
             &format!("run/agent-notify/{agent}-{session}.started"),
-            &format!("{}\n", now.saturating_sub(ago)),
+            &format!("{}\n", now - ago as i64),
         );
     }
 

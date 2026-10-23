@@ -7,7 +7,7 @@ use std::process::Command;
 use crate::fixtures::{agy, claude, codex, gemini};
 use crate::support::{AGENT_PID, Call, QUIET, Scratch, notify, scenario};
 
-/// Longer than a long task (120 seconds unless the config says otherwise), or since boot.
+/// Longer than a long task (120 seconds unless the config says otherwise).
 const LONG_AGO: u64 = 5 * 3600 + 30 * 60;
 /// How a notification's body reads the time a task took, in the tests (see `Scratch::calls`).
 const LONG_AGO_TEXT: &str = "<duration>";
