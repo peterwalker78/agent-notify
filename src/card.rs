@@ -1,46 +1,32 @@
 //! `agent-notify card`: a card for a desktop's plugin panel. It runs until the desktop stops it
-//! and prints one line of JSON each time something on it changes: a line for each open session,
-//! by its trace's name, saying whether it is idle or waiting on you and how many subagents it has
-//! working; the plan limits `usage` keeps in its cache, as gauges; and, at a glance, how many
-//! sessions are working or waiting on you. It wants attention while one is waiting.
+//! and prints one line of JSON each time the plan limits `usage` keeps in its cache change, as
+//! gauges. It leaves the chip's headline to the desktop, which shows the first gauges, and lists no
+//! sessions: whoever opens the panel is already working with their agents.
 //!
-//! It only reads: the working notes the hooks write, the hooks' waiting markers and the usage
-//! cache, which the hooks refresh. It asks no one over the network, sends no notifications and
-//! opens no agent's credentials, so a desktop can run it with nothing but those folders to read.
-//! It watches them with inotify, so it wakes only when one changes, and every few seconds to
-//! notice a session whose process has gone.
+//! It only reads the usage cache, which the hooks refresh. It asks no one over the network, sends
+//! no notifications and opens no agent's credentials, so a desktop can run it with nothing but
+//! that folder to read. It watches the folder with inotify, so it wakes only when it changes.
 
 use std::ffi::CString;
-use std::fs;
 use std::io::{self, Write};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use crate::env::{Env, uid};
-use crate::hook::waiting_marker;
-use crate::note::Note;
-use crate::procs::Procs;
-use crate::text::{is_number, last_part};
+use crate::env::Env;
 use crate::usage;
 
-/// How often the processes behind the notes are checked, since a process ending changes no note.
-const RECHECK: Duration = Duration::from_secs(5);
+/// How often the cache is read anyway, in case a change was missed.
+const RECHECK: Duration = Duration::from_secs(60);
 /// How long to let a burst of changes settle before reading them.
 const SETTLE: Duration = Duration::from_millis(100);
 
 pub fn run(env: &Env) -> ExitCode {
-    let procs = Procs::system();
-    let clock = Clock::read();
-    let watched: Vec<PathBuf> = env
-        .notes_dir()
-        .into_iter()
-        .chain([env.state_dir(), env.usage_dir()])
-        .collect();
+    let watched = vec![env.usage_dir()];
     let mut shown = None;
     let mut watch: Option<Watch> = None;
     let mut stdout = io::stdout().lock();
@@ -49,7 +35,7 @@ pub fn run(env: &Env) -> ExitCode {
         if watch.as_ref().is_none_or(|watch| watch.missing(&watched)) {
             watch = Watch::new(&watched);
         }
-        let line = card(&sessions(env, &procs, &clock), usage::cached_sections(env)).to_string();
+        let line = card(usage::cached_sections(env)).to_string();
         if shown.as_ref() != Some(&line) {
             // The desktop has gone: so has the reason to run.
             if writeln!(stdout, "{line}")
@@ -71,118 +57,14 @@ pub fn run(env: &Env) -> ExitCode {
     }
 }
 
-/// An open session, as its note and the hooks' state describe it.
-pub struct Session {
-    pub pid: u32,
-    pub note: Note,
-    pub waiting: bool,
-}
-
-/// When processes started, for telling a note from a process that has gone from one left by a
-/// new process with the same number.
-struct Clock {
-    boot: u64,
-    ticks: u64,
-}
-
-impl Clock {
-    fn read() -> Clock {
-        let stat = fs::read_to_string("/proc/stat").unwrap_or_default();
-        let boot = stat
-            .lines()
-            .find_map(|line| line.strip_prefix("btime ")?.trim().parse().ok());
-        // SAFETY: sysconf only reads a system value.
-        let ticks = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
-        Clock {
-            boot: boot.unwrap_or(0),
-            ticks: u64::try_from(ticks).unwrap_or(100).max(1),
-        }
-    }
-
-    fn started(&self, procs: &Procs, pid: u32) -> Option<u64> {
-        Some(self.boot + procs.start_ticks(pid)? / self.ticks)
-    }
-}
-
-/// The open sessions, by process ID.
-fn sessions(env: &Env, procs: &Procs, clock: &Clock) -> Vec<Session> {
-    let Some(dir) = env.notes_dir() else {
-        return Vec::new();
-    };
-    let Ok(entries) = fs::read_dir(&dir) else {
-        return Vec::new();
-    };
-    let state = env.state_dir();
-    let mut sessions: Vec<Session> = entries
-        .flatten()
-        .filter_map(|entry| {
-            let name = entry
-                .file_name()
-                .into_string()
-                .ok()
-                .filter(|name| is_number(name))?;
-            let pid: u32 = name.parse().ok()?;
-            if procs.owner(pid) != Some(uid()) {
-                return None;
-            }
-            // A note older than its process belongs to one that had the number before.
-            let written = entry.metadata().ok()?.modified().ok()?;
-            let written = written.duration_since(UNIX_EPOCH).ok()?.as_secs();
-            if written + 2 < clock.started(procs, pid)? {
-                return None;
-            }
-            let mut note = Note::parse(&fs::read_to_string(entry.path()).ok()?);
-            if note.name.is_empty() {
-                note.name = procs
-                    .cwd(pid)
-                    .map(|cwd| last_part(&cwd.to_string_lossy()).to_owned())
-                    .unwrap_or_default();
-            }
-            let waiting = note.idle && waiting_marker(&state, pid).exists();
-            Some(Session { pid, note, waiting })
-        })
-        .collect();
-    sessions.sort_by_key(|session| session.pid);
-    sessions
-}
-
-/// The card for these sessions and usage sections.
-fn card(sessions: &[Session], sections: Vec<Value>) -> Value {
-    let working = sessions.iter().filter(|session| !session.note.idle).count();
-    let waiting = sessions.iter().filter(|session| session.waiting).count();
-    let mut lines: Vec<String> = sessions
-        .iter()
-        .map(|session| {
-            let mut line = session.note.name.clone();
-            if session.waiting {
-                line.push_str(" · waiting on you");
-            } else if session.note.idle {
-                line.push_str(" · idle");
-            }
-            match session.note.helpers.len() {
-                0 => {}
-                1 => line.push_str(" · 1 subagent"),
-                many => line.push_str(&format!(" · {many} subagents")),
-            }
-            line
-        })
-        .collect();
-    if lines.is_empty() && sections.is_empty() {
-        lines.push("No agent session open".into());
-    }
-    let mut card = json!({"lines": lines, "sections": sections, "attention": waiting > 0});
-    let glance = if waiting > 0 {
-        Some(format!("{waiting} waiting"))
-    } else if working > 0 {
-        Some(format!("{working} working"))
+/// The card for these usage sections.
+fn card(sections: Vec<Value>) -> Value {
+    let lines: Vec<&str> = if sections.is_empty() {
+        vec!["No plan limits yet: they come once an agent has run"]
     } else {
-        // Left to the desktop, which shows the first usage gauges.
-        None
+        Vec::new()
     };
-    if let Some(glance) = glance {
-        card["glance"] = json!(glance);
-    }
-    card
+    json!({"lines": lines, "sections": sections})
 }
 
 /// An inotify watch on the folders the card reads.
@@ -287,91 +169,24 @@ fn add_watch(fd: &OwnedFd, dir: &Path) -> bool {
     unsafe { libc::inotify_add_watch(fd.as_raw_fd(), path.as_ptr(), events) >= 0 }
 }
 
-/// Seconds since the epoch, for tests that make notes.
-#[cfg(test)]
-fn now() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| since.as_secs())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn session(pid: u32, name: &str, idle: bool, helpers: &[&str], waiting: bool) -> Session {
-        let note = Note {
-            name: name.into(),
-            idle,
-            helpers: helpers.iter().map(|h| h.to_string()).collect(),
-        };
-        Session { pid, note, waiting }
-    }
-
     #[test]
-    fn with_nothing_open_and_no_usage_the_card_says_so() {
+    fn with_no_usage_yet_the_card_says_when_it_comes() {
         assert_eq!(
-            card(&[], Vec::new()),
-            json!({"lines": ["No agent session open"], "sections": [], "attention": false})
+            card(Vec::new()),
+            json!({"lines": ["No plan limits yet: they come once an agent has run"], "sections": []})
         );
     }
 
     #[test]
-    fn each_session_has_a_line_and_the_glance_counts_who_is_working() {
-        let sessions = [
-            session(
-                10,
-                "claude: fix <the> kiln",
-                false,
-                &["reading the tests", "fixing the docs"],
-                false,
-            ),
-            session(11, "gemini: ledger", true, &[], false),
-            session(12, "codex: orchard", false, &["one"], false),
-        ];
-        assert_eq!(
-            card(&sessions, Vec::new()),
-            json!({
-                "lines": [
-                    "claude: fix <the> kiln · 2 subagents",
-                    "gemini: ledger · idle",
-                    "codex: orchard · 1 subagent",
-                ],
-                "sections": [],
-                "attention": false,
-                "glance": "2 working",
-            })
-        );
-    }
-
-    #[test]
-    fn one_waiting_on_you_wants_attention_and_takes_the_glance() {
-        let sessions = [
-            session(10, "claude: kiln", true, &[], true),
-            session(11, "codex: x", false, &[], false),
-        ];
-        let card = card(&sessions, Vec::new());
-        assert_eq!(card["lines"][0], "claude: kiln · waiting on you");
-        assert_eq!(card["glance"], "1 waiting");
-        assert_eq!(card["attention"], true);
-    }
-
-    #[test]
-    fn with_every_session_idle_the_glance_is_left_to_the_usage_gauges() {
+    fn the_card_is_the_usage_and_leaves_the_headline_to_the_desktop() {
         let usage =
             vec![json!({"name": "Claude", "meters": [{"label": "Session", "percent": 40}]})];
-        let card = card(
-            &[session(10, "claude: kiln", true, &[], false)],
-            usage.clone(),
-        );
+        let card = card(usage.clone());
+        assert_eq!(card, json!({"lines": [], "sections": usage}));
         assert_eq!(card.get("glance"), None);
-        assert_eq!(card["sections"], json!(usage));
-    }
-
-    #[test]
-    fn the_clock_dates_this_process_after_boot() {
-        let clock = Clock::read();
-        let started = clock.started(&Procs::system(), std::process::id()).unwrap();
-        assert!(started <= now() + 1 && started + 86_400 * 365 > now());
     }
 }

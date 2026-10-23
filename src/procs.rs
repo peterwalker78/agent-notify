@@ -38,14 +38,6 @@ impl Procs {
         rest.split(' ').nth(1)?.parse().ok()
     }
 
-    /// The process's start, in clock ticks after boot.
-    pub fn start_ticks(&self, pid: u32) -> Option<u64> {
-        let stat = fs::read_to_string(self.file(pid, "stat")).ok()?;
-        let (_, rest) = stat.rsplit_once(") ")?;
-        // Field 22 of stat, counting the state after the name as field 3.
-        rest.split(' ').nth(19)?.parse().ok()
-    }
-
     /// The first argument after the program: the script an interpreter runs.
     fn script(&self, pid: u32) -> Option<String> {
         let cmdline = fs::read(self.file(pid, "cmdline")).ok()?;
@@ -126,19 +118,6 @@ impl Procs {
             pid = self.parent(pid).unwrap_or(0);
         }
         None
-    }
-
-    /// The owner of the process.
-    pub fn owner(&self, pid: u32) -> Option<u32> {
-        use std::os::unix::fs::MetadataExt;
-        fs::metadata(self.root.join(pid.to_string()))
-            .ok()
-            .map(|meta| meta.uid())
-    }
-
-    /// The folder the process is working in.
-    pub fn cwd(&self, pid: u32) -> Option<PathBuf> {
-        self.link(pid, "cwd")
     }
 }
 

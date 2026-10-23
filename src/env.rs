@@ -44,9 +44,7 @@ impl Env {
             cache_home: under_home("XDG_CACHE_HOME", ".cache"),
             state_home: under_home("XDG_STATE_HOME", ".local/state"),
             codex_home: under_home("CODEX_HOME", ".codex"),
-            runtime_dir: var("XDG_RUNTIME_DIR")
-                .map(PathBuf::from)
-                .or_else(granted_runtime_dir),
+            runtime_dir: var("XDG_RUNTIME_DIR").map(PathBuf::from),
             path,
             home,
         }
@@ -135,17 +133,6 @@ impl Env {
             _ => std::env::current_exe().unwrap_or_else(|_| PathBuf::from("agent-notify")),
         }
     }
-}
-
-/// The runtime folder a desktop plugin was handed the notes folder in, when it was given no
-/// XDG_RUNTIME_DIR: a plugin's environment is cleared, and the folders it may read are passed as
-/// `SLIPSTREAM_PLUGIN_READ_0`, `_1` and so on.
-fn granted_runtime_dir() -> Option<PathBuf> {
-    (0..16)
-        .map_while(|n| var(&format!("SLIPSTREAM_PLUGIN_READ_{n}")))
-        .map(PathBuf::from)
-        .find(|path| path.ends_with("slipstream/working"))
-        .and_then(|notes| Some(notes.parent()?.parent()?.to_path_buf()))
 }
 
 fn with_homebrew(path: OsString, home: &Path) -> OsString {

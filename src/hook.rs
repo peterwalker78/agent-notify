@@ -32,11 +32,6 @@ use crate::usage;
 /// Where the hook's JSON says the agent is working.
 const FOLDER: &[&[Step]] = &[&[Key("cwd")], &[Key("workspacePaths"), Index(0)]];
 
-/// The marker beside the state that says a session is waiting on you, for `agent-notify card`.
-pub fn waiting_marker(state_dir: &Path, pid: u32) -> PathBuf {
-    state_dir.join(format!("{pid}.waiting"))
-}
-
 /// What the agent is doing, as the working note says it.
 #[derive(Clone, Copy, PartialEq)]
 enum Activity {
@@ -361,12 +356,6 @@ impl Hook<'_> {
             None => (transcript::task(&self.payload), Vec::new()),
         };
         let idle = activity != Activity::Working && helpers.is_empty();
-        let marker = waiting_marker(&self.env.state_dir(), pid);
-        if activity == Activity::Waiting {
-            let _ = fs::write(&marker, "");
-        } else {
-            let _ = fs::remove_file(&marker);
-        }
         let name = self.note_name(&path, &task);
         if let Err(err) = (Note {
             name,

@@ -1,5 +1,4 @@
-//! `card`: a line of JSON each time the agents' sessions or the cached limits change, for a
-//! desktop's plugin panel.
+//! `card`: a line of JSON each time the cached limits change, for a desktop's plugin panel.
 
 use std::io::{BufRead, BufReader};
 use std::process::Stdio;
@@ -11,11 +10,12 @@ use serde_json::{Value, json};
 use crate::support::Scratch;
 
 #[test]
-fn the_card_follows_the_working_notes_and_the_usage_cache() {
+fn the_card_follows_the_usage_cache() {
     let s = Scratch::new("card");
     s.desktop();
     let mut card = s
         .command(&["card"])
+        .env_remove("XDG_RUNTIME_DIR")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .spawn()
@@ -40,64 +40,14 @@ fn the_card_follows_the_working_notes_and_the_usage_cache() {
     };
     assert_eq!(
         next(),
-        json!({"lines": ["No agent session open"], "sections": [], "attention": false})
+        json!({"lines": ["No plan limits yet: they come once an agent has run"], "sections": []})
     );
-
-    // This test's own process stands in for an agent's.
-    let pid = std::process::id();
-    let note = format!("run/slipstream/working/{pid}");
-    s.write(&note, "claude: Kiln & timer\n\nreading the tests\n");
-    assert_eq!(
-        next(),
-        json!({"lines": ["claude: Kiln & timer · 1 subagent"], "sections": [], "attention": false, "glance": "1 working"})
-    );
-    s.write(&format!("run/agent-notify/{pid}.waiting"), "");
-    s.write(&note, "claude: Kiln & timer\nidle\n");
-    assert_eq!(
-        next(),
-        json!({"lines": ["claude: Kiln & timer · waiting on you"], "sections": [], "attention": true, "glance": "1 waiting"})
-    );
-    std::fs::remove_file(s.path(&format!("run/agent-notify/{pid}.waiting"))).unwrap();
-    s.write(&note, "claude: Kiln & timer\nidle\n");
-    assert_eq!(
-        next(),
-        json!({"lines": ["claude: Kiln & timer · idle"], "sections": [], "attention": false}),
-        "idle, but still open"
-    );
-    std::fs::remove_file(s.path(&note)).unwrap();
-    assert_eq!(
-        next(),
-        json!({"lines": ["No agent session open"], "sections": [], "attention": false})
-    );
-    card.kill().unwrap();
-    card.wait().unwrap();
-}
-
-/// A desktop runs plugins with a cleared environment and hands them only the folders they may
-/// read: the card finds the notes in what it was handed.
-#[test]
-fn the_card_reads_the_notes_from_the_folders_it_is_handed() {
-    let s = Scratch::new("card-plugin");
-    s.desktop();
-    let pid = std::process::id();
+    // A session's note changes nothing: the card lists no sessions.
     s.write(
-        &format!("run/slipstream/working/{pid}"),
-        "claude: kiln\nidle\n",
+        &format!("run/slipstream/working/{}", std::process::id()),
+        "claude: kiln\n",
     );
-    let mut command = s.command(&["card"]);
-    command
-        .env_remove("XDG_RUNTIME_DIR")
-        .env("SLIPSTREAM_PLUGIN_READ_0", s.path("cache/agent-notify"))
-        .env("SLIPSTREAM_PLUGIN_READ_1", s.path("run/slipstream/working"))
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped());
-    let mut card = command.spawn().unwrap();
-    let mut first = String::new();
-    BufReader::new(card.stdout.take().unwrap())
-        .read_line(&mut first)
-        .unwrap();
+    assert!(lines.recv_timeout(Duration::from_millis(500)).is_err());
     card.kill().unwrap();
     card.wait().unwrap();
-    let first: Value = serde_json::from_str(&first).unwrap();
-    assert_eq!(first["lines"], json!(["claude: kiln · idle"]));
 }

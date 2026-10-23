@@ -14,7 +14,7 @@ Nothing it learns about your sessions leaves your computer.
 [**With Slipstream**](#with-slipstream) ·
 [**What it can reach**](#what-it-can-reach)
 
-<img src="assets/card.png" width="462" alt="Slipstream's plugin panel open under the clock. The Agents card lists three sessions: one working with two subagents, one idle, and one waiting on you. Under them are gauges for Claude's session and weekly limits and Codex's session limit. The chip beside the clock says 1 waiting, with an amber mark.">
+<img src="assets/card.png" width="462" alt="Slipstream's plugin panel open under the clock. The Agents card has gauges for Claude's session and weekly limits and Codex's five-hour and weekly limits, each with the part of its window gone by shaded. The chip beside the clock shows the first two gauges and 61%.">
 
 </div>
 
@@ -58,7 +58,7 @@ agent-notify status                # what's configured, wired and listening
 
 ## With Slipstream
 
-agent-notify is also a plugin for [Slipstream](https://github.com/peterwalker78/slipstream-desktop), and its first: a card in the panel beside the clock, shown above, with each open session, what it is doing, how many subagents it has working and whether it's waiting on you, and your plan limits as gauges. The chip by the clock says how many sessions are working, and turns amber while one is waiting on you.
+agent-notify is also a plugin for [Slipstream](https://github.com/peterwalker78/slipstream-desktop), and its first: a card in the panel beside the clock, shown above, with your plan limits as gauges, each showing how far through its window you are. The chip by the clock shows the first of them at a glance.
 
 The same hooks leave notes that Slipstream reads:
 
@@ -76,19 +76,15 @@ The same hooks leave notes that Slipstream reads:
 
 None of these is a documented interface, so each is asked once every few minutes at most, and a refusal leaves the last numbers on show, marked as old.
 
-**The card** only reads. It goes nowhere on the network, sends no notifications and opens no agent's login: it reads the notes, the hooks' state and the cached limits, the three folders its `plugin.toml` names, and nothing else.
+**The card** only reads. It goes nowhere on the network, sends no notifications and opens no agent's login: it reads the cached limits, the one folder its `plugin.toml` names, and nothing else.
 
 ```toml
 name = "Agents"
 exec = ["bin/agent-notify", "card"]
-read = [
-    "$XDG_RUNTIME_DIR/slipstream/working",
-    "$XDG_RUNTIME_DIR/agent-notify",
-    "$XDG_CACHE_HOME/agent-notify",
-]
+read = ["$XDG_CACHE_HOME/agent-notify"]
 ```
 
-The test `the_card_reads_the_notes_from_the_folders_it_is_handed` runs it with only those folders to go on.
+The test `the_card_follows_the_usage_cache` runs it the way a desktop does, without the session's runtime folder.
 
 A hook never gets in your agent's way: it prints nothing, always exits successfully, and says what went wrong in `~/.local/state/agent-notify/agent-notify.log` instead.
 

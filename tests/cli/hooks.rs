@@ -214,12 +214,6 @@ fn an_agent_waiting_on_you_after_a_long_task_is_critical() {
                 &hints
             )]
         );
-        assert!(
-            s.read("run/agent-notify/4242.waiting").is_some(),
-            "the card can tell it waits on you"
-        );
-        s.hook("claude", "start", claude::PROMPT);
-        assert!(s.read("run/agent-notify/4242.waiting").is_none());
     });
 }
 
