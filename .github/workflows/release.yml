@@ -30,7 +30,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends ca-certificates curl git build-essential \
-            clang mold binutils gh
+            clang mold binutils gh openssh-client
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - uses: actions/checkout@v4
@@ -40,6 +40,21 @@ jobs:
           cargo build --release --locked
       - name: Pack
         run: scripts/package
+      - name: Sign
+        # Slipstream checks the bundle against this signature once its file for this app names
+        # the public key. Without the secret the release still goes out, unsigned.
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          EXTRA_SIGNING_KEY: ${{ secrets.EXTRA_SIGNING_KEY }}
+        run: |
+          if [ -z "$EXTRA_SIGNING_KEY" ]; then
+            echo "::warning::EXTRA_SIGNING_KEY isn't set, so the bundle goes out unsigned"
+            exit 0
+          fi
+          key=$(mktemp)
+          trap 'rm -f "$key"' EXIT
+          printf '%s\n' "$EXTRA_SIGNING_KEY" >"$key"
+          ssh-keygen -q -Y sign -f "$key" -n slipstream-extra dist/agent-notify-x86_64.tar.gz
       - uses: actions/attest-build-provenance@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
@@ -57,6 +72,9 @@ jobs:
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           files="dist/agent-notify-x86_64.tar.gz dist/agent-notify-x86_64.tar.gz.sha256"
+          if [ -e dist/agent-notify-x86_64.tar.gz.sig ]; then
+            files="$files dist/agent-notify-x86_64.tar.gz.sig"
+          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" $files --clobber
           else
