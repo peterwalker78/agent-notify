@@ -1,0 +1,66 @@
+name: release
+
+# For a version tag: builds the plugin folder on the oldest system it supports, packs it, attests
+# it and attaches it to the tag's release with its SHA-256. Run by hand, it stops at the build.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    # Debian 13's glibc is the oldest the binary may ask for.
+    container: docker.io/library/debian:13
+    env:
+      TAG: ${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Install tools
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl git build-essential \
+            clang mold binutils gh
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          rustup toolchain install
+          cargo build --release --locked
+      - name: Pack
+        run: scripts/package
+      - uses: actions/attest-build-provenance@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          subject-path: dist/agent-notify-x86_64.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-notify
+          path: |
+            dist/agent-notify-x86_64.tar.gz
+            dist/agent-notify-x86_64.tar.gz.sha256
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        # A new release stays a draft until its files are on it, so "latest" never points at one
+        # with nothing to download.
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          files="dist/agent-notify-x86_64.tar.gz dist/agent-notify-x86_64.tar.gz.sha256"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" $files --clobber
+          else
+            gh release create "$TAG" --draft --title "agent-notify ${TAG#v}" --generate-notes
+            gh release upload "$TAG" $files
+            gh release edit "$TAG" --draft=false
+          fi

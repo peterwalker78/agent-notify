@@ -1,0 +1,10 @@
+# agent-notify as a plugin for Slipstream's plugin panel: a card with each open agent session and
+# the plan limits. The card only reads the folders below; the agents' hooks do the rest.
+name = "Agents"
+description = "Your coding agents' sessions and plan limits"
+exec = ["bin/agent-notify", "card"]
+read = [
+    "$XDG_RUNTIME_DIR/slipstream/working",
+    "$XDG_RUNTIME_DIR/agent-notify",
+    "$XDG_CACHE_HOME/agent-notify",
+]

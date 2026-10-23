@@ -1,0 +1,46 @@
+#!/bin/sh
+# Packs a release: the plugin folder, as agent-notify-x86_64.tar.gz in dist/, with its SHA-256
+# beside it. The folder holds plugin.toml, bin/agent-notify, the licence, the README and the
+# licences of the crates built in, so unpacked it is a plugin a desktop can load as it is.
+#
+#   scripts/package [BINARY]   BINARY defaults to target/release/agent-notify
+#
+# The binary must run on any current distribution: it may ask for no glibc newer than Debian 13's
+# and link nothing but glibc and libgcc.
+set -eu
+repo=$(cd "$(dirname "$0")/.." && pwd -P)
+binary=${1:-$repo/target/release/agent-notify}
+max_glibc=2.41
+allowed=" libc.so.6 libm.so.6 libgcc_s.so.1 ld-linux-x86-64.so.2 "
+
+if ! [ -x "$binary" ]; then
+    echo "package: $binary isn't built; run cargo build --release --locked" >&2
+    exit 1
+fi
+wanted=$(readelf -W --dyn-syms "$binary" | sed -n 's/.*@GLIBC_\([0-9][0-9.]*\).*/\1/p' | sort -V | tail -n1)
+if [ -n "$wanted" ] && [ "$(printf '%s\n%s\n' "$wanted" "$max_glibc" | sort -V | tail -n1)" != "$max_glibc" ]; then
+    echo "package: $binary needs glibc $wanted, newer than $max_glibc" >&2
+    exit 1
+fi
+for lib in $(readelf -W -d "$binary" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p'); do
+    case $allowed in
+        *" $lib "*) ;;
+        *)
+            echo "package: $binary links $lib, which isn't on every system" >&2
+            exit 1
+            ;;
+    esac
+done
+
+dist=$repo/dist
+stage=$dist/agent-notify
+rm -rf "$stage"
+mkdir -p "$stage/bin" "$stage/licences"
+cp "$repo/plugin.toml" "$repo/README.md" "$repo/COPYING" "$stage/"
+cp "$binary" "$stage/bin/agent-notify"
+chmod 755 "$stage/bin/agent-notify"
+"$repo/scripts/crate-licences" "$stage/licences/crates.txt"
+name=agent-notify-x86_64.tar.gz
+(cd "$dist" && tar --sort=name --owner=0 --group=0 --numeric-owner -czf "$name" agent-notify)
+(cd "$dist" && sha256sum "$name" >"$name.sha256")
+echo "$dist/$name"

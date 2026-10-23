@@ -1,0 +1,22 @@
+[package]
+name = "agent-notify"
+description = "Desktop notifications, working notes and plan usage for terminal coding agents, run from their hooks"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/peterwalker78/agent-notify"
+rust-version = "1.85"
+
+[dependencies]
+libc = "0.2"
+# Settings files are rewritten with their keys in the order they had.
+serde_json = { version = "1", features = ["preserve_order"] }
+# D-Bus in pure Rust, for notifications.
+zbus = "5.19"
+
+# Release builds are made by CI. Stripping the symbol table takes about a third off the file; a
+# panic still names the file and line it came from.
+[profile.release]
+lto = true
+codegen-units = 1
+strip = "symbols"
