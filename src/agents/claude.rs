@@ -84,10 +84,22 @@ pub fn attach_id(printed: &str) -> Option<&str> {
     })
 }
 
+/// The entry Claude Code keeps for the session running as process `pid`.
+fn session_entry(env: &Env, pid: u32) -> Option<Value> {
+    let entry = fs::read_to_string(env.home.join(format!(".claude/sessions/{pid}.json"))).ok()?;
+    serde_json::from_str(&entry).ok()
+}
+
+/// Whether process `pid` is a spare: a background session Claude Code starts ahead of time, so
+/// the next one opens at once, and that no job has taken yet. Nobody is working in it, so it is
+/// no agent at work and nothing to bring back.
+pub fn is_spare(env: &Env, pid: u32) -> bool {
+    session_entry(env, pid).is_some_and(|entry| entry.get("spare") == Some(&Value::Bool(true)))
+}
+
 /// The background job the session running as process `pid` belongs to.
 pub fn job_id(env: &Env, pid: u32) -> Option<String> {
-    let entry = fs::read_to_string(env.home.join(format!(".claude/sessions/{pid}.json"))).ok()?;
-    let entry: Value = serde_json::from_str(&entry).ok()?;
+    let entry = session_entry(env, pid)?;
     let id =
         crate::payload::at(&entry, &[crate::payload::Key("jobId")]).map(crate::payload::to_text)?;
     let id: String = id
@@ -165,13 +177,18 @@ fn helpers(record: &Value) -> Vec<String> {
     helpers
 }
 
-/// Whether the background job is busy.
-pub fn is_working(env: &Env, id: &str) -> bool {
+/// Whether the background job has something under way: working, or waiting on an answer to
+/// carry on with it, which stopping it would lose.
+pub fn is_under_way(env: &Env, id: &str) -> bool {
     let Ok(text) = fs::read(job_file(env, id)) else {
         return false;
     };
-    serde_json::from_slice::<Value>(&text)
-        .is_ok_and(|record| record.get("state").and_then(Value::as_str) == Some("working"))
+    serde_json::from_slice::<Value>(&text).is_ok_and(|record| {
+        matches!(
+            record.get("state").and_then(Value::as_str),
+            Some("working" | "blocked")
+        )
+    })
 }
 
 #[cfg(test)]

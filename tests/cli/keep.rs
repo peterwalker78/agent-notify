@@ -8,7 +8,8 @@ use crate::support::{Scratch, scenario};
 const JOB: &str = "7f3e9a21";
 
 /// A fake Claude Code: `--bg` says how to attach, `attach` notes what it finds and can hang up
-/// the terminal (as closing the window does) when HANGUP is set, `stop` does nothing.
+/// the terminal (as closing the window does) when HANGUP is set, or have another window attach
+/// meanwhile when TAKEN_OVER is set; `stop` does nothing.
 fn fake_claude(s: &Scratch, says_how_to_attach: bool) {
     let root = s.root.display();
     let bg = if says_how_to_attach {
@@ -25,6 +26,7 @@ fn fake_claude(s: &Scratch, says_how_to_attach: bool) {
         cat '{root}'/run/slipstream/resume/* >'{root}/logs/resume-during' 2>/dev/null
         cat '{root}/run/agent-notify/claude-'"$2"'.window' >'{root}/logs/window-during' 2>/dev/null
         echo "$PPID" >'{root}/logs/attach-parent'
+        if [ -n "${{TAKEN_OVER:-}}" ]; then echo 99999 >'{root}/run/agent-notify/claude-'"$2"'.window'; fi
         if [ -n "${{HANGUP:-}}" ]; then kill -HUP "$PPID"; fi
         sleep 0.2 ;;
 esac"#
@@ -176,6 +178,52 @@ fn closing_the_window_stops_a_session_with_nothing_under_way() {
             runs(s),
             strings(&[&["--bg"], &["attach", JOB], &["stop", JOB]])
         );
+    });
+}
+
+#[test]
+fn logging_out_leaves_a_session_waiting_on_an_answer_running() {
+    scenario("keep_hangup_blocked", |s| {
+        fake_claude(s, true);
+        s.write(
+            &format!("home/.claude/jobs/{JOB}/state.json"),
+            r#"{"state":"blocked"}"#,
+        );
+        s.set_var("HANGUP", "1");
+        assert!(keep(s, &["claude"], true).success());
+        assert_eq!(runs(s), strings(&[&["--bg"], &["attach", JOB]]));
+    });
+}
+
+#[test]
+fn a_session_another_window_attached_to_is_left_to_that_window() {
+    scenario("keep_taken_over", |s| {
+        fake_claude(s, true);
+        s.set_var("TAKEN_OVER", "1");
+        assert!(keep(s, &["claude"], true).success());
+        assert_eq!(
+            runs(s),
+            strings(&[&["--bg"], &["attach", JOB]]),
+            "not stopped under the other window"
+        );
+        assert_eq!(
+            s.files()
+                .keys()
+                .filter(|name| name.contains("resume"))
+                .count(),
+            0,
+            "this window doesn't come back with it"
+        );
+        assert_eq!(
+            s.read(&format!("run/agent-notify/claude-{JOB}.window"))
+                .as_deref(),
+            Some("99999\n"),
+            "the other window keeps it"
+        );
+        // Closing this window afterwards doesn't stop it either.
+        s.set_var("HANGUP", "1");
+        keep(s, &["claude", "attach", JOB], true);
+        assert!(!runs(s).contains(&vec!["stop".to_string(), JOB.to_string()]));
     });
 }
 

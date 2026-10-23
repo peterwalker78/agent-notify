@@ -48,6 +48,26 @@ fn a_new_session_leaves_the_command_that_reopens_it() {
 }
 
 #[test]
+fn a_session_started_ahead_of_time_is_no_agent_at_work_until_it_is_taken() {
+    scenario("spare", |s| {
+        s.desktop();
+        s.write("home/.claude/sessions/4242.json", claude::SPARE_ENTRY);
+        s.write("run/slipstream/working/4242", "claude: robin\nidle\n");
+        s.hook("claude", "session_start", claude::SESSION_START);
+        assert_eq!(s.note(AGENT_PID), None, "no trace for it");
+        assert_eq!(
+            s.read(&format!("run/slipstream/resume/{AGENT_PID}")),
+            None,
+            "and nothing to bring back"
+        );
+        // Taken by a job, it is a session like any.
+        s.write("home/.claude/sessions/4242.json", claude::SESSION_ENTRY);
+        s.hook("claude", "working", claude::TOOL_USED);
+        assert!(s.note(AGENT_PID).is_some());
+    });
+}
+
+#[test]
 fn a_session_that_already_has_a_note_keeps_it() {
     scenario("session_start_again", |s| {
         s.desktop();

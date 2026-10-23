@@ -333,6 +333,12 @@ impl Hook<'_> {
             .agent_above(self.agent, std::os::unix::process::parent_id())
     }
 
+    /// Whether the agent's process is a session started ahead of time that nobody has taken yet:
+    /// it leaves no notes until it is someone's.
+    fn is_spare(&self, pid: u32) -> bool {
+        self.agent == "claude" && claude::is_spare(self.env, pid)
+    }
+
     /// Writes the note that tells the desktop what the agent is doing, only where a desktop has
     /// made the folder for them, and with `only_new` only if there's no note yet. An agent idle
     /// with subagents still running is working through them.
@@ -342,6 +348,10 @@ impl Hook<'_> {
         };
         let Some(pid) = self.agent_pid() else { return };
         let path = dir.join(pid.to_string());
+        if self.is_spare(pid) {
+            let _ = fs::remove_file(&path);
+            return;
+        }
         if only_new && path.exists() {
             return;
         }
@@ -384,6 +394,10 @@ impl Hook<'_> {
             return;
         };
         let Some(pid) = self.agent_pid() else { return };
+        if self.is_spare(pid) {
+            let _ = fs::remove_file(dir.join(pid.to_string()));
+            return;
+        }
         if let Err(err) = fs::create_dir_all(&dir)
             .and_then(|()| state::write_line(&dir.join(pid.to_string()), format!("{command} {id}")))
         {

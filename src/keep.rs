@@ -110,7 +110,7 @@ fn terminal_still_there() -> bool {
 /// Closing the window or logging out hangs this process up with it, and a session still working
 /// carries on. Leaving the session in the window (detaching, or quitting the agent view) stops
 /// it, as quitting the agent does anywhere else: its conversation is kept, and attaching opens
-/// it again.
+/// it again. A session another window has attached to since is that window's, and is left to it.
 fn attach_to(env: &Env, agent: &str, id: &str) -> ! {
     let me = std::process::id();
     let window = state::make_state(env).map(|dir| dir.join(format!("{agent}-{id}.window")));
@@ -140,12 +140,19 @@ fn attach_to(env: &Env, agent: &str, id: &str) -> ! {
     if HUNG_UP.load(Ordering::SeqCst) {
         // A session with nothing under way would sit in memory with no terminal to reach it
         // by, so it is stopped. Its conversation is kept, and attaching opens it again.
-        if !claude::is_working(env, id) {
+        if !claude::is_under_way(env, id) && !taken_over(window.as_deref(), me) {
             stop(env, agent, id);
         }
         std::process::exit(0);
     }
     if !terminal_still_there() {
+        std::process::exit(0);
+    }
+    // This window no longer shows the session, so it isn't brought back with it at login.
+    if taken_over(window.as_deref(), me) {
+        if let Some(resume) = &resume {
+            let _ = fs::remove_file(resume);
+        }
         std::process::exit(0);
     }
     // Extra presses of the key that detached mustn't cut the stop short, or close the shell.
@@ -155,6 +162,14 @@ fn attach_to(env: &Env, agent: &str, id: &str) -> ! {
         let _ = fs::remove_file(file);
     }
     std::process::exit(0);
+}
+
+/// Whether another window has attached to the session since this one did: each attach writes
+/// its own process into the session's window file.
+fn taken_over(window: Option<&std::path::Path>, me: u32) -> bool {
+    window
+        .and_then(state::number_in)
+        .is_some_and(|pid| pid != u64::from(me))
 }
 
 fn stop(env: &Env, agent: &str, id: &str) {

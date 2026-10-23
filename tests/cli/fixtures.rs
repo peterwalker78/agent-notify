@@ -29,6 +29,9 @@ pub mod claude {
     /// The entry Claude Code keeps for a session running in the background as AGENT_PID.
     pub const SESSION_ENTRY: &str = r#"{"pid":4242,"sessionId":"5c1d7e2a-9b3f-4c8e-a1d2-3e4f5a6b7c8d","cwd":"/home/robin/projects/kiln","jobId":"5c1d7e2a"}"#;
 
+    /// The entry for a session Claude Code has started ahead of time, which no job has taken yet.
+    pub const SPARE_ENTRY: &str = r#"{"pid":4242,"sessionId":"5c1d7e2a-9b3f-4c8e-a1d2-3e4f5a6b7c8d","cwd":"/home/robin","kind":"bg","jobId":"5c1d7e2a","spare":true,"status":"idle"}"#;
+
     pub const JOB_STATE: &str = r#"{"name":"Kiln timer\nrework","state":"working","fan":[
         {"kind":"agent","label":"Reading the firing schedule","startedAt":1},
         {"kind":"agent","label":"Already done","doneAt":5},
