@@ -60,7 +60,9 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" $files --clobber
           else
-            gh release create "$TAG" --draft --title "agent-notify ${TAG#v}" --generate-notes
+            # The notes are the version's section of CHANGELOG.md.
+            awk -v v="${TAG#v}" '$0 ~ "^## " v " " {on=1; next} /^## / {on=0} on' CHANGELOG.md >notes.md
+            gh release create "$TAG" --draft --verify-tag --title "agent-notify ${TAG#v}" --notes-file notes.md
             gh release upload "$TAG" $files
             gh release edit "$TAG" --draft=false
           fi
