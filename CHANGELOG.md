@@ -3,6 +3,7 @@
 ## Unreleased
 
 - **Each plan limit says how long its window is,** as `window` in seconds beside `resets`, so a desktop can show how far through the window you are. It's left out where the length isn't known.
+- **`usage-agents` chooses whose limits are reported,** for when you use an agent without wanting its limits on show. Every agent wired up is reported if it's left out.
 
 ## 0.1.0 - 2026-10-23
 

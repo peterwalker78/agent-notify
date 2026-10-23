@@ -90,7 +90,7 @@ impl Usage<'_> {
     fn providers(&self) -> Vec<&'static str> {
         PROVIDERS
             .into_iter()
-            .filter(|&provider| self.config.wants(provider))
+            .filter(|&provider| self.config.wants_usage(provider))
             .filter(|&provider| match provider {
                 "claude" => File::open(claude::credentials(self.env)).is_ok(),
                 other => self.env.have(other),
@@ -324,7 +324,7 @@ pub fn cached_sections(env: &Env) -> Vec<Value> {
     };
     PROVIDERS
         .into_iter()
-        .filter(|&provider| usage.config.wants(provider))
+        .filter(|&provider| usage.config.wants_usage(provider))
         .filter_map(|provider| usage.sections(&[provider]))
         .flatten()
         .collect()

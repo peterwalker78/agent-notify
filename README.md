@@ -101,6 +101,7 @@ agents = claude gemini           # the agents setup wires, and whose limits are 
 long-task-secs = 120             # a task this long gets a sound when it finishes
 sound-finished = complete
 sound-attention = window-attention
+usage-agents = claude            # whose limits are reported; every agent above if left out
 usage-refresh-secs = 300         # how often the limits are asked for, at most
 usage-alerts = 75 90 100         # the levels a limit notifies at
 ```

@@ -73,6 +73,7 @@ Config, ~/.config/agent-notify/config, one \"key = value\" per line:
   long-task-secs = 120
   sound-finished = complete
   sound-attention = window-attention
+  usage-agents = claude
   usage-refresh-secs = 300
   usage-alerts = 75 90 100
 

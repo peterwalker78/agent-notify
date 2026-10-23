@@ -64,6 +64,15 @@ impl Config {
         self.agents().contains(&agent)
     }
 
+    /// Whether to report `agent`'s plan limits: those of the agents in `usage-agents` where it
+    /// is set, else of every agent wired up.
+    pub fn wants_usage(&self, agent: &str) -> bool {
+        match self.get("usage-agents") {
+            Some(listed) => listed.split_whitespace().any(|one| one == agent),
+            None => self.wants(agent),
+        }
+    }
+
     pub fn long_task_secs(&self) -> u64 {
         self.number("long-task-secs", 120)
     }
@@ -136,6 +145,16 @@ mod tests {
     fn the_last_line_for_a_key_wins_and_comments_do_not_count() {
         let config = config("agents = claude\n# agents = codex\n  agents=gemini agy  \n");
         assert_eq!(config.agents(), ["gemini", "agy"]);
+    }
+
+    #[test]
+    fn usage_is_reported_for_the_agents_wired_unless_others_are_named() {
+        let wired = config("agents = claude codex agy\n");
+        assert!(wired.wants_usage("codex"));
+        let named = config("agents = claude codex agy\nusage-agents = claude\n");
+        assert!(named.wants_usage("claude"));
+        assert!(!named.wants_usage("codex") && !named.wants_usage("agy"));
+        assert!(named.wants("codex"), "its hooks are still wired");
     }
 
     #[test]
