@@ -76,12 +76,12 @@ The same hooks leave notes that Slipstream reads:
 
 None of these is a documented interface, so each is asked once every few minutes at most, and a refusal leaves the last numbers on show, marked as old.
 
-**The card** only reads. It goes nowhere on the network, sends no notifications and opens no agent's login: it reads the cached limits, the one folder its `plugin.toml` names, and nothing else.
+**The card** only reads. It goes nowhere on the network, sends no notifications and opens no agent's login: it reads the cached limits and its config, which says which agents to show: the two folders its `plugin.toml` names, and nothing else. Slipstream runs it in a sandbox that holds it to that.
 
 ```toml
 name = "Agents"
 exec = ["bin/agent-notify", "card"]
-read = ["$XDG_CACHE_HOME/agent-notify"]
+read = ["$XDG_CACHE_HOME/agent-notify", "$XDG_CONFIG_HOME/agent-notify"]
 ```
 
 The test `the_card_follows_the_usage_cache` runs it the way a desktop does, without the session's runtime folder.
