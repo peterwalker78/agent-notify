@@ -1,7 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 - 2026-10-28
 
+- **The card shows your agents inside Slipstream's sandbox.** It reads the config to know which agents to show, but its `plugin.toml` didn't name that folder, so a sandboxed card found no agents. It's named now.
+- **The release is signed,** with a `.sig` beside the bundle, so Slipstream can check who made it before installing it.
 - **No more phantom sessions.** Claude Code starts a spare background session ahead of time so the next one opens at once, and its start hook used to leave notes for it as though someone were working there: an extra idle trace on Slipstream's faded desktop, and a session to bring back that was nobody's. A spare leaves no notes until a job takes it.
 - **Every kept session carries on through a logout in Slipstream.** One sitting at its prompt used to be stopped at logout and opened again at login; it now keeps running, and its window attaches to it again. Closing a window still stops a session with nothing under way.
 - **A session waiting on your answer carries on through a logout.** `keep` stopped a background session at logout unless it was working, which lost the question it was waiting to ask you; one waiting on you now stays, as a working one does.
