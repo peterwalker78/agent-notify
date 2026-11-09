@@ -15,6 +15,7 @@
 
 mod agents;
 mod card;
+mod cgroup;
 mod config;
 mod env;
 mod hook;

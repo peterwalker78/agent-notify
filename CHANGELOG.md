@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **A kept session's work counts to the window it's attached to.** Desktops tell how much each app is using by its cgroup, and a background session sat in the cgroup of whichever terminal first started Claude's background service, so its work was counted there, or to a window long closed. The hooks now ask systemd to move the session in with the tab it's attached to, and it follows the window you attach from next. systemd only does this for a terminal that hands its cgroups over to the app, as Konsole does; anywhere else the session stays where it was. Nothing else about the session changes.
+
 ## 0.2.0 - 2026-10-28
 
 - **The card shows your agents inside Slipstream's sandbox.** It reads the config to know which agents to show, but its `plugin.toml` didn't name that folder, so a sandboxed card found no agents. It's named now.

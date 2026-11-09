@@ -38,6 +38,33 @@ impl Procs {
         rest.split(' ').nth(1)?.parse().ok()
     }
 
+    /// The cgroup the process is in, as the unified hierarchy has it.
+    pub fn cgroup(&self, pid: u32) -> Option<String> {
+        let text = fs::read_to_string(self.file(pid, "cgroup")).ok()?;
+        let path = text.lines().find_map(|line| line.strip_prefix("0::"))?;
+        Some(path.to_owned())
+    }
+
+    /// A process and everything under it, from the kernel's own lists of each thread's children.
+    pub fn tree(&self, pid: u32) -> Vec<u32> {
+        let mut tree = vec![pid];
+        let mut i = 0;
+        while i < tree.len() && tree.len() < 4096 {
+            let tasks = fs::read_dir(self.root.join(tree[i].to_string()).join("task"));
+            for task in tasks.into_iter().flatten().flatten() {
+                if let Ok(children) = fs::read_to_string(task.path().join("children")) {
+                    tree.extend(
+                        children
+                            .split_whitespace()
+                            .filter_map(|c| c.parse::<u32>().ok()),
+                    );
+                }
+            }
+            i += 1;
+        }
+        tree
+    }
+
     /// The first argument after the program: the script an interpreter runs.
     fn script(&self, pid: u32) -> Option<String> {
         let cmdline = fs::read(self.file(pid, "cmdline")).ok()?;

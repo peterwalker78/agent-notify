@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::agents::{self, claude};
+use crate::cgroup;
 use crate::config::Config;
 use crate::env::{self, Env};
 use crate::log;
@@ -170,6 +171,28 @@ impl Hook<'_> {
             }
             "working" => self.working_note(Activity::Working, false),
             _ => self.turn(event),
+        }
+        self.join_window();
+    }
+
+    /// Moves a session kept running in the background in with the terminal attached to it, so
+    /// the desktop counts its work to that window. Each hook looks, so a session follows a new
+    /// window at its next step.
+    fn join_window(&self) {
+        let Some(state) = state::make_state(self.env) else {
+            return;
+        };
+        let session = self.session_id();
+        let Some(window) = self.kept_window(&state, &session) else {
+            return;
+        };
+        let Some(agent) = self.agent_pid() else {
+            return;
+        };
+        let job = session.split('-').next().unwrap_or(&session);
+        let tried = state.join(format!("{}-{job}.cgroup", self.agent));
+        if let Err(err) = cgroup::follow(&self.procs, &tried, agent, window) {
+            self.log(&err);
         }
     }
 
