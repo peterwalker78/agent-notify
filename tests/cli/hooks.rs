@@ -39,11 +39,18 @@ fn a_new_session_leaves_the_command_that_reopens_it() {
             .as_deref(),
         Some("claude --resume 5c1d7e2a-9b3f-4c8e-a1d2-3e4f5a6b7c8d\n")
     );
+    // An agent that only runs its start hook at the first prompt is reopened through `keep`,
+    // which leaves the note again before the session has been typed into.
     s.hook("agy", "session_start", agy::SESSION_START);
-    assert_eq!(
-        s.read(&format!("run/slipstream/resume/{AGENT_PID}"))
-            .as_deref(),
-        Some("agy --conversation a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d\n")
+    let note = s
+        .read(&format!("run/slipstream/resume/{AGENT_PID}"))
+        .unwrap_or_default();
+    assert!(note.starts_with('\''), "{note}");
+    assert!(
+        note.ends_with(
+            "agent-notify' keep agy --conversation a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d\n"
+        ),
+        "{note}"
     );
 }
 

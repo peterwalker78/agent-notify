@@ -6,7 +6,8 @@
 //! session's window, and it leaves the desktop a note that attaches the window to the session
 //! again at the next login (the layout record looks for notes under the window's shell, which
 //! the session isn't). Only Claude Code runs a background session; any other agent, and anything
-//! that isn't an interactive session (print mode, a subcommand, no terminal), runs as it is.
+//! that isn't an interactive session (print mode, a subcommand, no terminal), runs as it is. An
+//! agent reopening one of its sessions leaves its note first, so it comes back again next time.
 
 use std::ffi::{OsStr, OsString};
 use std::fs;
@@ -14,7 +15,7 @@ use std::os::unix::process::CommandExt;
 use std::process::{ExitCode, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::agents::claude;
+use crate::agents::{self, claude};
 use crate::env::Env;
 use crate::state;
 use crate::text::shell_quote;
@@ -22,6 +23,9 @@ use crate::text::shell_quote;
 pub fn run(env: &Env, agent: &OsStr, args: &[OsString]) -> ExitCode {
     let interactive = is_terminal(libc::STDIN_FILENO) && is_terminal(libc::STDOUT_FILENO);
     if agent != "claude" || !interactive {
+        if interactive {
+            reopen_note(env, agent, args);
+        }
         return exec(env, agent, args);
     }
     // The ID goes into the note run again at the next login, so only one shaped like an ID is
@@ -57,6 +61,51 @@ pub fn run(env: &Env, agent: &OsStr, args: &[OsString]) -> ExitCode {
         Some(id) => attach_to(env, "claude", id),
         None => exec(env, agent, args),
     }
+}
+
+/// The note that reopens session `id` with `command` (the agent's own, such as `codex resume`),
+/// through `keep`.
+pub fn note(env: &Env, command: &str, id: &str) -> String {
+    format!(
+        "{} keep {command} {id}",
+        shell_quote(&env.self_path().to_string_lossy())
+    )
+}
+
+/// An agent that is reopened rather than kept running, being reopened: the note that brought it
+/// back is left again under this process, which is about to become the agent, so the session
+/// comes back at the next login as well, whether or not anything is typed into it first.
+fn reopen_note(env: &Env, agent: &OsStr, args: &[OsString]) {
+    let Some(agent) = agent.to_str() else { return };
+    let Some(command) = agents::resume_command(agent) else {
+        return;
+    };
+    let Some(id) = resumed(command, agent, args) else {
+        return;
+    };
+    let Some(dir) = env
+        .resume_dir()
+        .filter(|dir| fs::create_dir_all(dir).is_ok())
+    else {
+        return;
+    };
+    let _ = state::write_line(
+        &dir.join(std::process::id().to_string()),
+        note(env, command, id),
+    );
+}
+
+/// The session ID in `agent args`, when they are exactly `command` followed by one.
+fn resumed<'a>(command: &str, agent: &str, args: &'a [OsString]) -> Option<&'a str> {
+    let mut words = command.split(' ');
+    if words.next() != Some(agent) {
+        return None;
+    }
+    let words: Vec<&str> = words.collect();
+    let (id, before) = args.split_last()?;
+    let id = id.to_str().filter(|id| crate::hook::resumable_id(id))?;
+    (before.len() == words.len() && before.iter().zip(&words).all(|(arg, word)| arg == word))
+        .then_some(id)
 }
 
 fn is_terminal(fd: libc::c_int) -> bool {
@@ -203,6 +252,38 @@ fn stop(env: &Env, agent: &str, id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_agent_s_own_resume_command_is_noted_again() {
+        let args = |words: &[&str]| words.iter().map(OsString::from).collect::<Vec<_>>();
+        let id = "019a3c41-715c-7e62-8df4-6424ac1b27d6";
+        assert_eq!(
+            resumed("codex resume", "codex", &args(&["resume", id])),
+            Some(id)
+        );
+        assert_eq!(
+            resumed("agy --conversation", "agy", &args(&["--conversation", id])),
+            Some(id)
+        );
+        assert_eq!(resumed("codex resume", "codex", &args(&[])), None);
+        assert_eq!(resumed("codex resume", "codex", &args(&[id])), None);
+        assert_eq!(
+            resumed("codex resume", "codex", &args(&["resume", id, "--yolo"])),
+            None
+        );
+        assert_eq!(
+            resumed(
+                "codex resume",
+                "codex",
+                &args(&["resume", "$(reboot)abcdefgh"])
+            ),
+            None
+        );
+        assert_eq!(
+            resumed("codex resume", "gemini", &args(&["resume", id])),
+            None
+        );
+    }
 
     #[test]
     fn a_logout_never_stops_the_session() {

@@ -20,6 +20,7 @@ use crate::agents::{self, claude};
 use crate::cgroup;
 use crate::config::Config;
 use crate::env::{self, Env};
+use crate::keep;
 use crate::log;
 use crate::note::Note;
 use crate::notify::{Notification, Notifier};
@@ -421,8 +422,17 @@ impl Hook<'_> {
             let _ = fs::remove_file(dir.join(pid.to_string()));
             return;
         }
+        // Claude runs its start hook as soon as a session opens. The others run theirs only when
+        // the first prompt goes in, so a session reopened at login and never typed into would
+        // leave no note for the logout after: its note goes through `keep`, which leaves the
+        // note again before it becomes the agent.
+        let note = if self.agent == "claude" {
+            format!("{command} {id}")
+        } else {
+            keep::note(self.env, command, &id)
+        };
         if let Err(err) = fs::create_dir_all(&dir)
-            .and_then(|()| state::write_line(&dir.join(pid.to_string()), format!("{command} {id}")))
+            .and_then(|()| state::write_line(&dir.join(pid.to_string()), note))
         {
             self.log(&err);
         }
@@ -456,7 +466,7 @@ impl Hook<'_> {
 
 /// Whether a session ID can go on the end of a command as it is: 8 to 80 letters, digits, `_` and
 /// `-`, so nothing in it is read by the shell that runs the note.
-fn resumable_id(id: &str) -> bool {
+pub fn resumable_id(id: &str) -> bool {
     (8..=80).contains(&id.len())
         && id
             .chars()
