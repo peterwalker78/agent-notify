@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **`keep codex` runs the session in your terminal.** Codex now runs every session in one shared background server unless told otherwise, so its sessions left their notes on that server rather than in any window, were lost at logout, and left the terminal asking whether to close. Started or reopened through `keep`, a Codex that knows `--no-daemon` runs the session itself, in the window, as it used to.
 - **A Codex, Gemini or Antigravity session reopened at login comes back at the next one too.** They only run their start hook once the first prompt goes in, so a session brought back by a logout and not typed into left no note, was lost at the following logout, and left the terminal asking whether to close. Their notes now reopen them through `keep`, which leaves the note again straight away.
 - **A kept session's work counts to the window it's attached to.** Desktops tell how much each app is using by its cgroup, and a background session sat in the cgroup of whichever terminal first started Claude's background service, so its work was counted there, or to a window long closed. The hooks now ask systemd to move the session in with the tab it's attached to, and it follows the window you attach from next. systemd only does this for a terminal that hands its cgroups over to the app, as Konsole does; anywhere else the session stays where it was. Nothing else about the session changes.
 

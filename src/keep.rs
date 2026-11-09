@@ -8,6 +8,8 @@
 //! the session isn't). Only Claude Code runs a background session; any other agent, and anything
 //! that isn't an interactive session (print mode, a subcommand, no terminal), runs as it is. An
 //! agent reopening one of its sessions leaves its note first, so it comes back again next time.
+//! Codex runs its sessions in a shared background server unless told otherwise; started here, a
+//! session runs in its own process in the window instead, as it used to.
 
 use std::ffi::{OsStr, OsString};
 use std::fs;
@@ -25,6 +27,9 @@ pub fn run(env: &Env, agent: &OsStr, args: &[OsString]) -> ExitCode {
     if agent != "claude" || !interactive {
         if interactive {
             reopen_note(env, agent, args);
+            if agent == "codex" && runs_shared(env, args) {
+                return exec(env, agent, &on_its_own(args));
+            }
         }
         return exec(env, agent, args);
     }
@@ -106,6 +111,41 @@ fn resumed<'a>(command: &str, agent: &str, args: &'a [OsString]) -> Option<&'a s
     let id = id.to_str().filter(|id| crate::hook::resumable_id(id))?;
     (before.len() == words.len() && before.iter().zip(&words).all(|(arg, word)| arg == word))
         .then_some(id)
+}
+
+/// Whether `codex ARGS` would run its session in Codex's shared background server. That server
+/// runs every window's session, and their hooks, in one process outside any terminal, so a
+/// session there leaves its note where no window's shell is, and its work is counted to no
+/// window. Only a session being started or reopened is asked, and only when this Codex knows
+/// `--no-daemon`.
+fn runs_shared(env: &Env, args: &[OsString]) -> bool {
+    let starts_a_session = match args.first().and_then(|arg| arg.to_str()) {
+        None => true,
+        Some(first) => first.starts_with('-') || first == "resume" || first == "fork",
+    };
+    if !starts_a_session || args.iter().any(|arg| arg == NO_DAEMON) {
+        return false;
+    }
+    env.command("codex")
+        .arg("--help")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .is_ok_and(|help| String::from_utf8_lossy(&help.stdout).contains(NO_DAEMON))
+}
+
+const NO_DAEMON: &str = "--no-daemon";
+
+/// `args` with Codex told to run the session in its own process, after `resume` or `fork` when
+/// it reopens one.
+fn on_its_own(args: &[OsString]) -> Vec<OsString> {
+    let at = usize::from(
+        args.first()
+            .is_some_and(|arg| arg == "resume" || arg == "fork"),
+    );
+    let mut args = args.to_vec();
+    args.insert(at, NO_DAEMON.into());
+    args
 }
 
 fn is_terminal(fd: libc::c_int) -> bool {
@@ -282,6 +322,20 @@ mod tests {
         assert_eq!(
             resumed("codex resume", "gemini", &args(&["resume", id])),
             None
+        );
+    }
+
+    #[test]
+    fn codex_is_told_to_run_the_session_itself() {
+        let args = |words: &[&str]| words.iter().map(OsString::from).collect::<Vec<_>>();
+        assert_eq!(on_its_own(&args(&[])), args(&["--no-daemon"]));
+        assert_eq!(
+            on_its_own(&args(&["resume", "019a3c41-715c"])),
+            args(&["resume", "--no-daemon", "019a3c41-715c"])
+        );
+        assert_eq!(
+            on_its_own(&args(&["-m", "gpt-5"])),
+            args(&["--no-daemon", "-m", "gpt-5"])
         );
     }
 
