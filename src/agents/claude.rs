@@ -20,6 +20,8 @@ pub fn hooks(command: &dyn Fn(&str) -> String) -> Value {
         "SessionStart": {"hooks": [hook("session_start", 10)]},
         "UserPromptSubmit": {"hooks": [hook("start", 10)]},
         "Stop": {"hooks": [hook("finish", 10)]},
+        // A turn ended by a failed request runs this instead of Stop.
+        "StopFailure": {"hooks": [hook("stopped", 10)]},
         "PostToolUse": {"hooks": [hook("working", 5)]},
         "Notification": {
             "matcher": "permission_prompt|elicitation_dialog",

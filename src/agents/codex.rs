@@ -9,6 +9,8 @@ pub fn hooks(command: &dyn Fn(&str) -> String) -> Value {
         "PostToolUse": {"matcher": "*", "hooks": [hook("working", 5)]},
         "UserPromptSubmit": {"hooks": [hook("start", 10)]},
         "Stop": {"hooks": [hook("finish", 10)]},
+        // A turn you stop with Esc or Ctrl+C runs this instead of Stop.
+        "Interrupt": {"hooks": [hook("stopped", 10)]},
         "PermissionRequest": {"matcher": "*", "hooks": [hook("attention", 10)]},
     })
 }

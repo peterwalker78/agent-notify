@@ -217,7 +217,7 @@ impl Hook<'_> {
             "step" => "start",
             other => other,
         };
-        if matches!(event, "start" | "finish") {
+        if matches!(event, "start" | "finish" | "stopped") {
             usage::refresh_if_due(self.env, self.agent);
         }
         match event {
@@ -227,6 +227,12 @@ impl Hook<'_> {
                 let _ = fs::remove_file(&session.started);
                 self.working_note(Activity::Idle, false);
                 self.announce(&state, &session, Announce::Finished, elapsed);
+            }
+            // The task ended without finishing: you stopped it, or the agent's request failed.
+            // Either way you are at the agent already or it has said why, so nothing to announce.
+            "stopped" => {
+                let _ = fs::remove_file(&session.started);
+                self.working_note(Activity::Idle, false);
             }
             "attention" => {
                 let elapsed = self.elapsed(&session, now);

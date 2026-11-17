@@ -14,6 +14,8 @@ pub mod claude {
 
     pub const STOP: &str = r#"{"session_id":"5c1d7e2a-9b3f-4c8e-a1d2-3e4f5a6b7c8d","transcript_path":"@ROOT@/home/.claude/projects/-home-robin-projects-kiln/5c1d7e2a.jsonl","cwd":"/home/robin/projects/kiln","hook_event_name":"Stop","stop_hook_active":false,"last_assistant_message":"The timer now counts down.\n\n<b>Tests</b> pass & the header shows the time left."}"#;
 
+    pub const STOP_FAILURE: &str = r#"{"session_id":"5c1d7e2a-9b3f-4c8e-a1d2-3e4f5a6b7c8d","transcript_path":"@ROOT@/home/.claude/projects/-home-robin-projects-kiln/5c1d7e2a.jsonl","cwd":"/home/robin/projects/kiln","hook_event_name":"StopFailure"}"#;
+
     pub const PERMISSION: &str = r#"{"session_id":"5c1d7e2a-9b3f-4c8e-a1d2-3e4f5a6b7c8d","transcript_path":"@ROOT@/home/.claude/projects/-home-robin-projects-kiln/5c1d7e2a.jsonl","cwd":"/home/robin/projects/kiln","hook_event_name":"Notification","notification_type":"permission_prompt","message":"Claude needs your permission to use Bash"}"#;
 
     pub const TRANSCRIPT_PATH: &str =
@@ -62,6 +64,8 @@ pub mod codex {
     pub const TOOL_ONLY: &str = r#"{"session_id":"019a2b3c-4d5e-7f60-8a9b-0c1d2e3f4a5b","cwd":"/home/robin/projects/orchard","hook_event_name":"PermissionRequest","tool_name":"apply_patch"}"#;
 
     pub const STOP: &str = r#"{"session_id":"019a2b3c-4d5e-7f60-8a9b-0c1d2e3f4a5b","cwd":"/home/robin/projects/orchard","hook_event_name":"Stop","last_assistant_message":"Pruning dates are in. Apples > pears, as asked."}"#;
+
+    pub const INTERRUPT: &str = r#"{"session_id":"019a2b3c-4d5e-7f60-8a9b-0c1d2e3f4a5b","cwd":"/home/robin/projects/orchard","hook_event_name":"Interrupt","turn_id":"t1"}"#;
 }
 
 pub mod agy {

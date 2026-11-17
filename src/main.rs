@@ -64,7 +64,8 @@ each limit passes the levels in usage-alerts.
   agent-notify keep claude [ARGS] start a session in the background, attached to this terminal;
                                   alias claude='agent-notify keep claude' makes it the default
   agent-notify hook AGENT EVENT   what the hooks run; EVENT is session_start, start, finish,
-                                  attention, working (the agent or a subagent has used a tool),
+                                  stopped (ended without finishing: interrupted, or a request
+                                  failed), attention, working (the agent or a subagent has used a tool),
                                   or step (the agent is calling its model: a start if it was idle)
 
 Agents: claude (Claude Code), gemini (Gemini CLI), codex (Codex CLI), agy (Antigravity CLI).

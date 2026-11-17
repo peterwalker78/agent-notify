@@ -284,6 +284,44 @@ fn a_permission_request_says_what_it_wants_to_run() {
 }
 
 #[test]
+fn a_task_that_ends_without_finishing_goes_idle_quietly() {
+    // Claude Code runs StopFailure for a failed request and Codex runs Interrupt for Esc, in
+    // place of Stop; neither finished, so the note goes idle with nothing announced.
+    let cases = [
+        (
+            "claude",
+            claude::PROMPT,
+            claude::SESSION,
+            claude::STOP_FAILURE,
+            "claude: Make the kiln timer count down from the firing schedule inst",
+        ),
+        (
+            "codex",
+            codex::PROMPT,
+            codex::SESSION,
+            codex::INTERRUPT,
+            "codex: Add pruning dates to the orchard planner",
+        ),
+    ];
+    for (agent, prompt, session, stopped, name) in cases {
+        scenario(&format!("{agent}_stopped"), |s| {
+            s.desktop();
+            s.hook(agent, "start", prompt);
+            let working = s.note(AGENT_PID).expect("a note while it works");
+            assert!(working.ends_with("\n\n"), "working: {working:?}");
+            s.started(agent, session, LONG_AGO);
+            s.hook(agent, "stopped", stopped);
+            assert_eq!(s.note(AGENT_PID), Some(format!("{name}\nidle\n")));
+            assert!(s.calls().is_empty(), "nothing announced");
+            assert!(
+                s.read(&format!("run/agent-notify/{agent}-{session}.started"))
+                    .is_none()
+            );
+        });
+    }
+}
+
+#[test]
 fn codex_s_last_message_is_the_finish_s_detail() {
     scenario("codex_finish", |s| {
         s.desktop();
