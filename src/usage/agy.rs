@@ -18,9 +18,19 @@ pub fn fetch(usage: &Usage) -> bool {
     if parse(&printed, now).is_some_and(|report| usage.write("agy", &report)) {
         return true;
     }
-    usage.keep_stale("agy", "Antigravity", "Antigravity didn't say");
+    // Signed out, it opens a sign-in page each time it's asked, so it isn't asked again for a
+    // while: its own hooks ask once it's in use again after that.
+    let _ = crate::state::write_line(&usage.file("agy", "retry"), now + QUIET_AFTER_FAILING);
+    usage.keep_stale(
+        "agy",
+        "Antigravity",
+        "Antigravity didn't answer. If it's signed out, run agy to sign in",
+    );
     false
 }
+
+/// How long Antigravity is left alone after it fails to answer, in seconds.
+const QUIET_AFTER_FAILING: i64 = 3600;
 
 /// The section for what `/usage` printed; None if it named no quota.
 pub fn parse(printed: &str, now: i64) -> Option<Value> {

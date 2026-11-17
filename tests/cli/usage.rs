@@ -3,7 +3,7 @@
 
 use serde_json::Value;
 
-use crate::fixtures::usage;
+use crate::fixtures::{agy, claude, usage};
 use crate::support::{Call, Scratch, scenario};
 
 const CREDENTIALS: &str = "home/.claude/.credentials.json";
@@ -257,6 +257,81 @@ fn antigravity_s_limits_come_from_its_own_readout() {
                 "y 1".to_owned()
             )]
         );
+    });
+}
+
+/// Waits up to ten seconds for `done`, as a background refresh takes a moment.
+fn eventually(done: impl Fn() -> bool) -> bool {
+    for _ in 0..100 {
+        if done() {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    done()
+}
+
+#[test]
+fn each_agent_s_hooks_ask_only_for_its_own_limits() {
+    scenario("usage_own_agent", |s| {
+        s.config("agents = claude agy\n");
+        s.write(CREDENTIALS, usage::CLAUDE_LOGIN);
+        fake_curl(s, "200", "HTTP/2 200\r\n", usage::CLAUDE_REPLY);
+        s.write("agy/readout", usage::AGY_READOUT);
+        let root = s.root.display();
+        s.fake("agy", &format!("cat '{root}/agy/readout'"));
+
+        s.hook("claude", "start", claude::PROMPT);
+        assert!(eventually(|| s
+            .read(&format!("{CACHE}/claude.json"))
+            .is_some()));
+        assert!(
+            s.runs("agy").is_empty(),
+            "Claude's hook started Antigravity"
+        );
+        assert_eq!(s.read(&format!("{CACHE}/agy.asked")), None);
+
+        s.hook("agy", "session_start", agy::SESSION_START);
+        assert!(eventually(|| s
+            .read(&format!("{CACHE}/agy.json"))
+            .is_some()));
+        assert_eq!(s.runs("agy").len(), 1);
+    });
+}
+
+#[test]
+fn antigravity_is_left_alone_for_an_hour_after_it_fails_to_answer() {
+    scenario("usage_agy_signed_out", |s| {
+        s.config("agents = agy\n");
+        // Signed out, it says so on its error output and prints nothing.
+        s.fake("agy", "echo 'Authentication required' >&2\nexit 1");
+        let report = report(s, &["usage", "--refresh"]);
+        let agy = &report["sections"][0];
+        assert_eq!(
+            agy["note"],
+            "Antigravity didn't answer. If it's signed out, run agy to sign in"
+        );
+        let retry: i64 = s
+            .read(&format!("{CACHE}/agy.retry"))
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        assert!(
+            (now + 3500..=now + 3700).contains(&retry),
+            "{retry} vs {now}"
+        );
+
+        // Long enough ago to ask again, were it not for the hour.
+        s.write(&format!("{CACHE}/agy.asked"), "0\n");
+        report_again(s);
+        s.hook("agy", "session_start", agy::SESSION_START);
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        assert_eq!(s.runs("agy").len(), 1);
     });
 }
 

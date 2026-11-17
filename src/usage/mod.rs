@@ -49,11 +49,11 @@ pub fn run(env: &Env, args: &[String]) -> ExitCode {
     let refresh = usage.refresh_secs();
     match args.first().map(String::as_str) {
         Some("--refresh") => {
-            usage.refresh(60, true);
+            usage.refresh(60, true, None);
             usage.print()
         }
         Some("--background") => {
-            usage.refresh(refresh, false);
+            usage.refresh(refresh, false, args.get(1).map(String::as_str));
             ExitCode::SUCCESS
         }
         None => {
@@ -63,12 +63,12 @@ pub fn run(env: &Env, args: &[String]) -> ExitCode {
                 .any(|provider| File::open(usage.cache(provider)).is_ok())
             {
                 // Nothing to show yet, so this once it's worth the wait.
-                usage.refresh(refresh, true);
+                usage.refresh(refresh, true, None);
             } else if providers
                 .iter()
                 .any(|provider| usage.due(provider, refresh))
             {
-                usage.refresh_in_background();
+                usage.refresh_in_background(None);
             }
             usage.print()
         }
@@ -145,9 +145,9 @@ impl Usage<'_> {
         self.write(provider, &section)
     }
 
-    /// Asks every provider last asked at least `min_age` seconds ago. One refresh runs at a time;
-    /// another waits for it when `wait`, and otherwise leaves it to it.
-    fn refresh(&self, min_age: i64, wait: bool) {
+    /// Asks every provider last asked at least `min_age` seconds ago, or only `only`. One refresh
+    /// runs at a time; another waits for it when `wait`, and otherwise leaves it to it.
+    fn refresh(&self, min_age: i64, wait: bool, only: Option<&str>) {
         let Ok(lock) = File::create(self.dir.join("lock")) else {
             return;
         };
@@ -160,7 +160,7 @@ impl Usage<'_> {
             std::thread::sleep(Duration::from_millis(100));
         }
         for provider in self.providers() {
-            if !self.due(provider, min_age) {
+            if only.is_some_and(|only| only != provider) || !self.due(provider, min_age) {
                 continue;
             }
             let _ = state::write_line(&self.file(provider, "asked"), now());
@@ -176,12 +176,13 @@ impl Usage<'_> {
         }
     }
 
-    /// Starts a refresh detached, with nothing of the caller's open, so whoever runs `usage`
-    /// gets its output and its exit straight away.
-    fn refresh_in_background(&self) {
+    /// Starts a refresh detached, of every provider or only `only`, with nothing of the caller's
+    /// open, so whoever runs `usage` gets its output and its exit straight away.
+    fn refresh_in_background(&self, only: Option<&str>) {
         let mut command = self.env.command(self.env.self_path());
         command
             .args(["usage", "--background"])
+            .args(only)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
@@ -330,21 +331,25 @@ pub fn cached_sections(env: &Env) -> Vec<Value> {
         .collect()
 }
 
-/// Starts a background refresh when a provider is due one. Hooks call it, since they run with the
-/// agent's own access, network and credentials, where a display of the numbers may have neither.
-pub fn refresh_if_due(env: &Env) {
+/// Starts a background refresh of `agent`'s own limits when they're due one. Hooks call it, since
+/// they run with the agent's own access, network and credentials, where a display of the numbers
+/// may have neither. Only the agent's own: asking another agent would start that agent's program,
+/// and one whose login has lapsed opens a sign-in page nobody asked for.
+pub fn refresh_if_due(env: &Env, agent: &str) {
     let usage = Usage {
         env,
         config: Config::load(env.config_file()),
         dir: env.usage_dir(),
     };
     let refresh = usage.refresh_secs();
-    if usage
+    if let Some(&provider) = usage
         .providers()
         .iter()
-        .any(|provider| usage.due(provider, refresh))
+        .find(|&&provider| provider == agent)
     {
-        usage.refresh_in_background();
+        if usage.due(provider, refresh) {
+            usage.refresh_in_background(Some(provider));
+        }
     }
 }
 

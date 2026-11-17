@@ -168,7 +168,7 @@ impl Hook<'_> {
             "session_start" => {
                 self.working_note(Activity::Idle, true);
                 self.resume_note();
-                usage::refresh_if_due(self.env);
+                usage::refresh_if_due(self.env, self.agent);
             }
             "working" => self.working_note(Activity::Working, false),
             _ => self.turn(event),
@@ -218,7 +218,7 @@ impl Hook<'_> {
             other => other,
         };
         if matches!(event, "start" | "finish") {
-            usage::refresh_if_due(self.env);
+            usage::refresh_if_due(self.env, self.agent);
         }
         match event {
             "start" => self.start(&session, now),

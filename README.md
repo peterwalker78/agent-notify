@@ -24,7 +24,7 @@ You set an agent going on something long, and switch to something else. agent-no
 
 - **A notification when a task finishes, or an agent needs you.** A long task gets a sound; a short one is quiet. Only an agent waiting on you after a long task is critical, so a desktop that honours the notification spec wakes the screen for that and nothing else. Each session's notification replaces its last, and goes away when you send the next prompt.
 - **Back to the right window.** Notifications are sent from inside the agent's own processes, so a desktop that looks, as Slipstream does, can take you to the terminal they came from.
-- **Plan limits.** `agent-notify usage` reports how much of Claude's, Codex's and Antigravity's limits you've used, and a notification comes as each one passes 75%, 90% and 100%, once per window. The hooks refresh the numbers every few minutes at most, while you're using an agent.
+- **Plan limits.** `agent-notify usage` reports how much of Claude's, Codex's and Antigravity's limits you've used, and a notification comes as each one passes 75%, 90% and 100%, once per window. Each agent's hooks refresh that agent's numbers, every few minutes at most, while you're using it.
 - **Working through a logout.** `agent-notify keep claude` starts a session in the background with your terminal attached to it. Close the window or log out and it carries on working.
 
 It works on any Linux desktop that shows freedesktop notifications. The rest of what it leaves, the notes saying what each session is doing and how to reopen it, is for [Slipstream](#with-slipstream).
@@ -72,7 +72,7 @@ The same hooks leave notes that Slipstream reads:
 
 - **Claude:** `api.anthropic.com/api/oauth/usage`, with the login Claude Code already has. The login is only read, never renewed, and goes to `curl` on its standard input, so no process listing shows it.
 - **Codex:** `codex app-server`, which asks with its own login.
-- **Antigravity:** `agy -p /usage`, the CLI's own readout.
+- **Antigravity:** `agy -p /usage`, the CLI's own readout. When its login has lapsed it opens a sign-in page, so it's only asked while you're using Antigravity, and left alone for an hour after it fails to answer.
 
 None of these is a documented interface, so each is asked once every few minutes at most, and a refusal leaves the last numbers on show, marked as old.
 
